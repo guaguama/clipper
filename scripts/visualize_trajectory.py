@@ -18,7 +18,7 @@ from pathlib import Path
 from clipper import constants
 from clipper.model import load_model
 from clipper.sources import get_loader
-from clipper.viz import replay
+from clipper.viz import replay, scrub
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -43,7 +43,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--mode",
         default="replay",
         choices=("replay", "scrub"),
-        help="replay = autoplay; scrub = slider control (coming soon).",
+        help="replay = autoplay; scrub = interactive slider + keyboard control.",
     )
     p.add_argument(
         "--fps",
@@ -60,10 +60,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    if args.mode == "scrub":
-        raise SystemExit(
-            "scrub mode is not implemented yet; use --mode replay for now."
-        )
     if not args.path.exists():
         raise SystemExit(f"Trajectory file not found: {args.path}")
 
@@ -72,7 +68,10 @@ def main(argv: list[str] | None = None) -> None:
     traj = loader(
         args.path, model, args.model, source=args.source, fps=args.fps
     )
-    replay(model, traj, fps=args.fps, loop=not args.no_loop, speed=args.speed)
+    if args.mode == "scrub":
+        scrub(model, traj)
+    else:
+        replay(model, traj, fps=args.fps, loop=not args.no_loop, speed=args.speed)
 
 
 if __name__ == "__main__":

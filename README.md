@@ -45,7 +45,7 @@ python scripts/visualize_trajectory.py \
 |---|---|
 | `--source` | `default_datasets` \| `lafan1` \| `bones_seed` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
-| `--mode` | `replay` (default) \| `scrub` (slider control — not yet implemented) |
+| `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
 | `--fps` | playback rate override; also sets the rate for bones_seed |
 | `--speed` | real-time multiplier (e.g. `2` = 2×) |
 | `--no-loop` | play once instead of looping |
@@ -53,6 +53,23 @@ python scripts/visualize_trajectory.py \
 
 Any source can be played on either model — joints are matched by name, so e.g. a
 23-joint Lafan1 motion on `g1_29dof` simply leaves the extra waist/wrist DOFs at 0.
+
+### Scrub mode
+
+`--mode scrub` opens the MuJoCo viewer plus a small slider window (a **Frame**
+slider showing `frame k / N  t = ..s`, and a **Z-height** slider for a global
+ground-clipping offset). Drag the sliders, or use the keyboard with the **3D
+window focused** — the slider handles track the keys:
+
+| key | action |
+|---|---|
+| `a` / `d` | step −1 / +1 frame |
+| `w` / `s` | jump −10 / +10 frames |
+| `q` / `e` | raise / lower the global z-offset (±5 mm) |
+| `r` | reset the z-offset to 0 |
+| `f` | print `frame k/N  t=..s  z=+..m` (mark a clip's start/end for cropping) |
+
+Close either window to quit.
 
 ## Assets
 
