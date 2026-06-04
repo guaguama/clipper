@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipper"
+version = "0.0.1"
+description = "View, edit, and convert reference trajectories from g1mocap sources into motion-tracking formats."
+requires-python = ">=3.12"
+dependencies = [
+    "mujoco==3.9.0",
+    "numpy>=2.0,<3",
+    "scipy>=1.13",
+    "matplotlib>=3.10",
+    "imageio>=2.37",
+    "imageio-ffmpeg>=0.6",
+    "tqdm>=4.66",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# Robot model assets live outside the package tree (repo-root assets/),
+# resolved at runtime via clipper.constants paths.

@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: clipper
+Version: 0.0.1
+Summary: View, edit, and convert reference trajectories from g1mocap sources into motion-tracking formats.
+Requires-Python: >=3.12
+Requires-Dist: mujoco==3.9.0
+Requires-Dist: numpy<3,>=2.0
+Requires-Dist: scipy>=1.13
+Requires-Dist: matplotlib>=3.10
+Requires-Dist: imageio>=2.37
+Requires-Dist: imageio-ffmpeg>=0.6
+Requires-Dist: tqdm>=4.66

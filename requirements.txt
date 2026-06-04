@@ -1,0 +1,9 @@
+# pip mirror of environment.yml for non-conda installs.
+# Prefer `conda env create -f environment.yml` for a reproducible setup.
+mujoco==3.9.0
+numpy>=2.0,<3
+scipy>=1.13
+matplotlib>=3.10
+imageio>=2.37
+imageio-ffmpeg>=0.6
+tqdm>=4.66

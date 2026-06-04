@@ -1,0 +1,20 @@
+# Reproducible conda environment for the `clipper` trajectory tool.
+# Create/update with:   conda env create -f environment.yml
+#                        conda env update -f environment.yml --prune
+# Then install the package itself:   pip install -e .
+#
+# Lean, pure-MuJoCo stack: no mjlab / torch / warp / CUDA.
+name: clipper
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - mujoco==3.9.0          # matches traj_viz / unilab
+      - numpy>=2.0,<3
+      - scipy>=1.13
+      - matplotlib>=3.10        # Slider widgets for scrubbing UI
+      - imageio>=2.37           # video saving
+      - imageio-ffmpeg>=0.6     # ffmpeg backend for mp4 export
+      - tqdm>=4.66

@@ -1,0 +1,7 @@
+mujoco==3.9.0
+numpy<3,>=2.0
+scipy>=1.13
+matplotlib>=3.10
+imageio>=2.37
+imageio-ffmpeg>=0.6
+tqdm>=4.66
