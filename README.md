@@ -71,6 +71,44 @@ window focused** — the slider handles track the keys:
 
 Close either window to quit.
 
+## Cropping & converting trajectories
+
+`crop_trajectory.py` runs **load → crop → height-offset → (optional) standing pad →
+write**, producing a downstream motion file under `outputs/<format>/<model>/`. Frame
+indices are **0-based, inclusive** — the same numbers the scrub `f` marker prints.
+
+```bash
+# Crop Lafan1 frames 100..400 -> unitree_rl_mjlab NPZ (29-DOF)
+python scripts/crop_trajectory.py \
+    --path ~/.g1mocap/Lafan1/dance1_subject1.npz --source lafan1 --model g1_29dof \
+    --start 100 --stop 400
+# -> outputs/unitree_rl_mjlab/g1_29dof/dance1_subject1_crop100-400.npz
+
+# Raise 3 cm, pad standing at both ends, resample to 50 Hz, preview first
+python scripts/crop_trajectory.py \
+    --path <bones_seed.csv> --source bones_seed --model g1_29dof --fps 30 \
+    --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
+```
+
+| flag | meaning |
+|---|---|
+| `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
+| `--height-offset` | global z added to every frame (m) |
+| `--pad-standing` | add a standing pose + blended transition at each end (off by default) |
+| `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); defaults 1.0 / 0.5 |
+| `--output-fps` | resample (lerp + slerp) to this rate; default keeps the source fps |
+| `--format` | output format (`unitree_rl_mjlab`) |
+| `--name` | output file stem (default derived from the source + crop range) |
+| `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
+
+The `unitree_rl_mjlab` writer recreates upstream `csv_to_npz.py`'s output in **pure
+MuJoCo + numpy** (no `mjlab`/`torch`/CUDA): per output frame it forward-kinematics the
+model's *scene* XML for the full 30-body set (the 23-DOF scene pads with 6 dummy
+bodies) and derives velocities by finite difference (`np.gradient` for linear/joint,
+an SO3 central difference for angular). The NPZ holds `joint_pos`, `joint_vel`,
+`body_pos_w`, `body_quat_w` (wxyz), `body_lin_vel_w`, `body_ang_vel_w`, and `fps`
+(the root is body index 0; there is no separate root key).
+
 ## Assets
 
 `assets/robots/unitree_g1/` is vendored from `unitree_rl_mjlab`

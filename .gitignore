@@ -1,0 +1,14 @@
+# Generated trajectory outputs (NPZ / video)
+/outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Env / tooling
+.venv/
+.ipynb_checkpoints/
