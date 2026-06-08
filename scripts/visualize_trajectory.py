@@ -7,7 +7,7 @@ Examples:
         --source default_datasets --model g1_23dof
 
     python scripts/visualize_trajectory.py \
-        --path <bones_seed.csv> --source bones_seed --model g1_29dof --fps 30
+        --path <bones_seed.csv> --source bones_seed --model g1_29dof
 """
 
 from __future__ import annotations
@@ -49,7 +49,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--fps",
         type=float,
         default=None,
-        help="Playback rate override (also sets the rate for bones_seed).",
+        help="Playback rate override; defaults to the source's own fps "
+        "(npz frequency, or 120 Hz for bones_seed).",
     )
     p.add_argument("--speed", type=float, default=1.0, help="Real-time multiplier.")
     p.add_argument("--no-loop", action="store_true", help="Play once, then stop.")

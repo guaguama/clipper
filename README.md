@@ -36,9 +36,9 @@ python scripts/visualize_trajectory.py \
 python scripts/visualize_trajectory.py \
     --path ~/.g1mocap/Lafan1/dance1_subject2.npz --source lafan1 --model g1_23dof
 
-# bones_seed CSV -> 29-DOF G1 (cm->m, deg->rad, auto-grounded; no fps stored)
+# bones_seed CSV -> 29-DOF G1 (cm->m, deg->rad, auto-grounded; plays at 120 Hz)
 python scripts/visualize_trajectory.py \
-    --path <bones_seed.csv> --source bones_seed --model g1_29dof --fps 30
+    --path <bones_seed.csv> --source bones_seed --model g1_29dof
 ```
 
 | flag | meaning |
@@ -46,7 +46,7 @@ python scripts/visualize_trajectory.py \
 | `--source` | `default_datasets` \| `lafan1` \| `bones_seed` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
-| `--fps` | playback rate override; also sets the rate for bones_seed |
+| `--fps` | playback rate override; defaults to the source's own fps |
 | `--speed` | real-time multiplier (e.g. `2` = 2×) |
 | `--no-loop` | play once instead of looping |
 | `--no-floor` | hide the ground plane |
@@ -86,7 +86,7 @@ python scripts/crop_trajectory.py \
 
 # Raise 3 cm, pad standing at both ends, resample to 50 Hz, preview first
 python scripts/crop_trajectory.py \
-    --path <bones_seed.csv> --source bones_seed --model g1_29dof --fps 30 \
+    --path <bones_seed.csv> --source bones_seed --model g1_29dof \
     --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
 ```
 

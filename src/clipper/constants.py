@@ -118,9 +118,10 @@ MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof")
 # any source can be visualized on any model via the by-name qpos builder.
 SOURCES: tuple[str, ...] = ("default_datasets", "lafan1", "bones_seed")
 
-# bones_seed CSVs carry no frame rate; this is the assumed default (override via
-# the `--fps` CLI flag). Documented as a guess, not a verified capture rate.
-BONES_SEED_DEFAULT_FPS: float = 30.0
+# bones_seed CSVs carry no frame rate, but the source capture rate is 120 Hz —
+# verified from the dataset's seed metadata (move_duration_frames / temporal-label
+# event seconds clusters tightly at 120 across ~142k clips). Override via `--fps`.
+BONES_SEED_DEFAULT_FPS: float = 120.0
 
 # --------------------------------------------------------------------------- #
 # Standing "home" pose (HOME_KEYFRAME, identical for both models).

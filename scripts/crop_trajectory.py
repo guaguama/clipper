@@ -10,10 +10,10 @@ Examples:
         --path ~/.g1mocap/Lafan1/dance1_subject1.npz --source lafan1 --model g1_29dof \
         --start 100 --stop 400
 
-    # Crop, raise 3 cm, pad standing at both ends, preview in the viewer
+    # Crop, raise 3 cm, pad standing at both ends, resample to 50 Hz, preview
     python scripts/crop_trajectory.py \
-        --path <bones_seed.csv> --source bones_seed --model g1_29dof --fps 30 \
-        --start 50 --stop 600 --height-offset 0.03 --pad-standing --visualize
+        --path <bones_seed.csv> --source bones_seed --model g1_29dof \
+        --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
 """
 
 from __future__ import annotations
@@ -55,12 +55,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--post-static", type=float, default=1.0, help="Standing hold (s) after motion.")
     p.add_argument("--post-blend", type=float, default=0.5, help="Blend (s) motion -> standing.")
     p.add_argument(
-        "--input-fps", type=float, default=None,
-        help="Loader fps override (also sets the rate for bones_seed).",
-    )
-    p.add_argument(
         "--output-fps", type=float, default=None,
-        help="Resample to this fps (lerp/slerp). Default: keep source fps.",
+        help="Resample the written NPZ to this fps (lerp/slerp). "
+        "Default: keep the source fps.",
     )
     p.add_argument(
         "--format", default="unitree_rl_mjlab", choices=tuple(WRITERS),
@@ -109,7 +106,7 @@ def main(argv: list[str] | None = None) -> None:
 
     model = load_model(args.model, floor=False)
     loader = get_loader(args.source)
-    traj = loader(args.path, model, args.model, source=args.source, fps=args.input_fps)
+    traj = loader(args.path, model, args.model, source=args.source)
 
     traj = edits.crop(traj, args.start, args.stop)
     traj = edits.apply_height_offset(traj, args.height_offset)
