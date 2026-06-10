@@ -7,11 +7,12 @@ into formats suitable for downstream motion-tracking repos.
   `Lafan1` (`.npz`), `bones_seed` (`.csv`).
 - **First target**: [`unitree_rl_mjlab`](../unitree_rl_mjlab) motion NPZ format.
 
-Planned entry points (not yet implemented): `visualize_trajectory.py` (pure-MuJoCo
-replay / slider scrubbing) and `crop_trajectory.py` (crop + height-offset +
-optional standing-pose padding, with target-specific output writers). Both take a
-**required** `--source` and a `--model` (`g1_29dof` | `g1_23dof`); there is no
-source autodetection.
+**Entry points** (`scripts/`) — both take a **required** `--source` and `--model`
+(`g1_29dof` | `g1_23dof`); there is no source autodetection:
+
+- `visualize_trajectory.py` — pure-MuJoCo replay or interactive slider scrubbing.
+- `crop_trajectory.py` — crop + height-offset + optional standing-pose padding,
+  with target-specific output writers (and optional mp4 export).
 
 ## Setup
 
@@ -23,6 +24,50 @@ pip install -e .                          # install the clipper package
 
 `requirements.txt` mirrors the pip deps for non-conda installs. The stack is
 lean / pure-MuJoCo (no `mjlab` / `torch` / CUDA).
+
+### Source data (`~/.g1mocap`)
+
+The three sources are read in place from `~/.g1mocap` with this layout:
+
+```
+~/.g1mocap/
+├── DefaultDatasets/      # LocoMuJoCo .npz   (source: default_datasets, 40 Hz → g1_23dof)
+├── Lafan1/               # LocoMuJoCo .npz   (source: lafan1,           40 Hz → g1_23dof)
+└── bones_seed/           # Bones Studio "seed" (source: bones_seed,    120 Hz → g1_29dof)
+    ├── csv/<date>/*.csv  #   ~142k motion CSVs (~51 GB)
+    └── metadata/         #   per-clip catalog (parquet + temporal-label jsonl)
+```
+
+`DefaultDatasets` + `Lafan1` are the Unitree-G1 retargets from
+[`robfiras/loco-mujoco-datasets`](https://huggingface.co/datasets/robfiras/loco-mujoco-datasets)
+(under `<set>/mocap/UnitreeG1/`); `bones_seed` is the G1 CSVs + metadata from
+[`bones-studio/seed`](https://huggingface.co/datasets/bones-studio/seed). Recreate the
+folder exactly with the Hugging Face CLI:
+
+```bash
+pip install -U "huggingface_hub[cli]"     # provides `huggingface-cli` (newer hub: `hf`)
+mkdir -p ~/.g1mocap
+
+# --- DefaultDatasets + Lafan1 (LocoMuJoCo G1 .npz) ---
+huggingface-cli download robfiras/loco-mujoco-datasets --repo-type dataset \
+    --include "DefaultDatasets/mocap/UnitreeG1/*.npz" "Lafan1/mocap/UnitreeG1/*.npz" \
+    --local-dir ~/.g1mocap/_locomujoco
+mkdir -p ~/.g1mocap/DefaultDatasets ~/.g1mocap/Lafan1
+mv ~/.g1mocap/_locomujoco/DefaultDatasets/mocap/UnitreeG1/*.npz ~/.g1mocap/DefaultDatasets/
+mv ~/.g1mocap/_locomujoco/Lafan1/mocap/UnitreeG1/*.npz          ~/.g1mocap/Lafan1/
+rm -rf ~/.g1mocap/_locomujoco
+
+# --- bones_seed (Bones Studio "seed": G1 CSVs + metadata; ~51 GB — large!) ---
+huggingface-cli download bones-studio/seed --repo-type dataset \
+    --include "g1.tar.gz" "metadata/*" \
+    --local-dir ~/.g1mocap/bones_seed
+tar -xzf ~/.g1mocap/bones_seed/g1.tar.gz --strip-components=1 -C ~/.g1mocap/bones_seed
+rm ~/.g1mocap/bones_seed/g1.tar.gz        # → ~/.g1mocap/bones_seed/csv/<date>/*.csv
+```
+
+> `bones_seed` is ~51 GB across ~142k CSVs delivered as one `g1.tar.gz`, so it must be
+> fetched whole; clipper then reads it lazily (one `--path` at a time). `--strip-components=1`
+> drops the archive's leading `g1/` so the CSVs land at `bones_seed/csv/<date>/`.
 
 ## Visualizing trajectories
 

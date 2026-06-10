@@ -15,6 +15,18 @@ import mujoco.viewer
 from ..trajectory import Trajectory
 
 
+def _default_render_flags_off(viewer: "mujoco.viewer.Handle") -> None:
+    """Default shadows and reflections off in the passive viewer.
+
+    The flags are written to `user_scn`, which MuJoCo applies edge-triggered (only
+    when a value changes), so this sets the *initial* state while leaving the
+    viewer's own Shadow/Reflection checkboxes free to turn them back on.
+    """
+    flags = viewer.user_scn.flags
+    flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+    flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
+
+
 def set_pose(
     model: mujoco.MjModel,
     data: mujoco.MjData,
@@ -58,6 +70,7 @@ def replay(
     with mujoco.viewer.launch_passive(
         model, data, show_left_ui=False, show_right_ui=False
     ) as viewer:
+        _default_render_flags_off(viewer)
         k = 0
         while viewer.is_running():
             tic = time.perf_counter()

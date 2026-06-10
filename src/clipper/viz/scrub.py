@@ -24,7 +24,7 @@ import mujoco
 import mujoco.viewer
 
 from ..trajectory import Trajectory
-from .replay import set_pose
+from .replay import _default_render_flags_off, set_pose
 
 
 def _clamp_frame(f: float, n: int) -> int:
@@ -149,6 +149,7 @@ def scrub(
         model, data, show_left_ui=False, show_right_ui=False
     ) as v:
         viewer = v
+        _default_render_flags_off(viewer)
 
         fig = plt.figure(figsize=(6.8, 1.9))
         try:

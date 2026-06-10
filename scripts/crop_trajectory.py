@@ -88,6 +88,9 @@ def _save_video(model_id: str, traj, path: Path) -> None:
             f"--save-video: could not create an offscreen GL context ({exc}). "
             "Set MUJOCO_GL=egl or osmesa, or drop --save-video."
         )
+    # Match the interactive viewers: no shadows / reflections in the output video.
+    renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+    renderer.scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
     frames = []
     for k in range(traj.num_frames):
         set_pose(model, data, traj, k)

@@ -35,21 +35,33 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
 
     spec = mujoco.MjSpec.from_file(xml_path)
 
-    # The bare XML has only a dim COM-tracking light and relies on MuJoCo's
-    # default headlight (diffuse 0.4) -> the scene renders dark. Match the
-    # known-good scene_g1 lighting: a brighter headlight + a directional light.
-    spec.visual.headlight.ambient = [0.4, 0.4, 0.4]
-    spec.visual.headlight.diffuse = [0.7, 0.7, 0.7]
-    spec.visual.headlight.specular = [0.3, 0.3, 0.3]
+    # Reconstruct scene_g1_*.xml's environment
+    spec.stat.center = np.array([1.0, 0.7, 1.0])
+    spec.stat.extent = 0.8
+
+    spec.visual.headlight.ambient = [0.1, 0.1, 0.1]
+    spec.visual.headlight.diffuse = [0.6, 0.6, 0.6]
+    spec.visual.headlight.specular = [0.9, 0.9, 0.9]
+    spec.visual.rgba.haze = [0.15, 0.25, 0.35, 1.0]
+    spec.visual.global_.azimuth = -140.0
+    spec.visual.global_.elevation = -20.0
 
     sun = spec.worldbody.add_light()
     sun.type = mujoco.mjtLightType.mjLIGHT_DIRECTIONAL
     sun.pos = np.array([1.0, 0.0, 3.5])
     sun.dir = np.array([0.0, 0.0, -1.0])
-    sun.castshadow = True
 
-    # Checker-textured ground plane for a clear sense of height/translation.
+    # Flat-black skybox + checker ground plane (with edge marks) from the scene.
     spec.add_texture(
+        name="skybox",
+        type=mujoco.mjtTexture.mjTEXTURE_SKYBOX,
+        builtin=mujoco.mjtBuiltin.mjBUILTIN_FLAT,
+        rgb1=[0.0, 0.0, 0.0],
+        rgb2=[0.0, 0.0, 0.0],
+        width=512,
+        height=3072,
+    )
+    groundplane_tex = spec.add_texture(
         name="groundplane",
         type=mujoco.mjtTexture.mjTEXTURE_2D,
         builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER,
@@ -58,12 +70,15 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
         width=300,
         height=300,
     )
-    spec.add_material(
+    groundplane_tex.mark = mujoco.mjtMark.mjMARK_EDGE
+    groundplane_tex.markrgb = [0.8, 0.8, 0.8]
+    groundplane_mat = spec.add_material(
         name="groundplane",
-        textures=["", "groundplane"],  # slot 1 = 2D texture
+        textures=["", "groundplane"],
         texrepeat=[5, 5],
         reflectance=0.2,
     )
+    groundplane_mat.texuniform = True
     floor_geom = spec.worldbody.add_geom()
     floor_geom.name = "floor"
     floor_geom.type = mujoco.mjtGeom.mjGEOM_PLANE
