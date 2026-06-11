@@ -1,29 +1,28 @@
 # clipper
+![Clipper Logo](assets/clipper.png)
 
 View, edit, and convert reference trajectories from a variety of mocap sources
 into formats suitable for downstream motion-tracking repos.
 
-- **Sources** (read in place from `~/.g1mocap`): `DefaultDatasets` (`.npz`),
+- **Supported Sources**: `LocoMujoCo DefaultDatasets` (`.npz`),
   `Lafan1` (`.npz`), `bones_seed` (`.csv`).
-- **First target**: [`unitree_rl_mjlab`](../unitree_rl_mjlab) motion NPZ format.
+- **Supported Outputs**: [`unitree_rl_mjlab`](../unitree_rl_mjlab)
 
-**Entry points** (`scripts/`) — both take a **required** `--source` and `--model`
-(`g1_29dof` | `g1_23dof`); there is no source autodetection:
+**Entry points** (`scripts/`):
 
-- `visualize_trajectory.py` — pure-MuJoCo replay or interactive slider scrubbing.
+- `visualize_trajectory.py` — MuJoCo replay or interactive slider scrubbing.
 - `crop_trajectory.py` — crop + height-offset + optional standing-pose padding,
   with target-specific output writers (and optional mp4 export).
 
 ## Setup
 
 ```bash
-conda env create -f environment.yml      # creates env "clipper" (Python 3.12)
+conda env create -f environment.yml
 conda activate clipper
-pip install -e .                          # install the clipper package
+pip install -e .
 ```
 
-`requirements.txt` mirrors the pip deps for non-conda installs. The stack is
-lean / pure-MuJoCo (no `mjlab` / `torch` / CUDA).
+Creates env "clipper" (Python 3.12). `requirements.txt` mirrors pip dependencies for non-conda installs.
 
 ### Source data (`~/.g1mocap`)
 
@@ -34,18 +33,16 @@ The three sources are read in place from `~/.g1mocap` with this layout:
 ├── DefaultDatasets/      # LocoMuJoCo .npz   (source: default_datasets, 40 Hz → g1_23dof)
 ├── Lafan1/               # LocoMuJoCo .npz   (source: lafan1,           40 Hz → g1_23dof)
 └── bones_seed/           # Bones Studio "seed" (source: bones_seed,    120 Hz → g1_29dof)
-    ├── csv/<date>/*.csv  #   ~142k motion CSVs (~51 GB)
-    └── metadata/         #   per-clip catalog (parquet + temporal-label jsonl)
+    ├── csv/<date>/*.csv
+    └── metadata/
 ```
 
 `DefaultDatasets` + `Lafan1` are the Unitree-G1 retargets from
-[`robfiras/loco-mujoco-datasets`](https://huggingface.co/datasets/robfiras/loco-mujoco-datasets)
-(under `<set>/mocap/UnitreeG1/`); `bones_seed` is the G1 CSVs + metadata from
-[`bones-studio/seed`](https://huggingface.co/datasets/bones-studio/seed). Recreate the
-folder exactly with the Hugging Face CLI:
+[`robfiras/loco-mujoco-datasets`](https://huggingface.co/datasets/robfiras/loco-mujoco-datasets); `bones_seed` is the G1 CSVs + metadata from
+[`bones-studio/seed`](https://huggingface.co/datasets/bones-studio/seed). Recreate the source directory with the Hugging Face CLI (May require access approval first):
 
 ```bash
-pip install -U "huggingface_hub[cli]"     # provides `huggingface-cli` (newer hub: `hf`)
+pip install -U "huggingface_hub[cli]" 
 mkdir -p ~/.g1mocap
 
 # --- DefaultDatasets + Lafan1 (LocoMuJoCo G1 .npz) ---
@@ -65,14 +62,11 @@ tar -xzf ~/.g1mocap/bones_seed/g1.tar.gz --strip-components=1 -C ~/.g1mocap/bone
 rm ~/.g1mocap/bones_seed/g1.tar.gz        # → ~/.g1mocap/bones_seed/csv/<date>/*.csv
 ```
 
-> `bones_seed` is ~51 GB across ~142k CSVs delivered as one `g1.tar.gz`, so it must be
-> fetched whole; clipper then reads it lazily (one `--path` at a time). `--strip-components=1`
-> drops the archive's leading `g1/` so the CSVs land at `bones_seed/csv/<date>/`.
+> `bones_seed` is ~51 GB across ~142k CSVs delivered as one `g1.tar.gz`, so it must be fetched whole;
 
-## Visualizing trajectories
+## Visualizing Trajectories
 
-Replay a reference motion in MuJoCo. `--source` and `--model` are required (no
-autodetection):
+`scripts/visualize_trajectory.py` is used to replay a reference motion in MuJoCo (`--path`, `--source`, and `--model` are required). Examples:
 
 ```bash
 # LocoMuJoCo-format npz (DefaultDatasets / Lafan1) -> 23-DOF G1
@@ -88,6 +82,7 @@ python scripts/visualize_trajectory.py \
 
 | flag | meaning |
 |---|---|
+| `--path` | path to reference trajectory (required) |
 | `--source` | `default_datasets` \| `lafan1` \| `bones_seed` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
@@ -101,10 +96,10 @@ Any source can be played on either model — joints are matched by name, so e.g.
 
 ### Scrub mode
 
-`--mode scrub` opens the MuJoCo viewer plus a small slider window (a **Frame**
-slider showing `frame k / N  t = ..s`, and a **Z-height** slider for a global
-ground-clipping offset). Drag the sliders, or use the keyboard with the **3D
-window focused** — the slider handles track the keys:
+`--mode scrub` opens the MuJoCo viewer plus a small slider window for scrubbing 
+through trajectory frames and adjusting global ground-clipping offset. Drag the sliders, 
+or use the keyboard with the **slider window focused**. Additionally, current frame and 
+z-offset can be marked and printed for reference when cropping.
 
 | key | action |
 |---|---|
@@ -119,45 +114,40 @@ Close either window to quit.
 ## Cropping & converting trajectories
 
 `crop_trajectory.py` runs **load → crop → height-offset → (optional) standing pad →
-write**, producing a downstream motion file under `outputs/<format>/<model>/`. Frame
-indices are **0-based, inclusive** — the same numbers the scrub `f` marker prints.
+write**, producing a downstream motion file under `outputs/<format>/<model>/`. The standing
+pose pad prepends and appends a standing pose to the trajectory. Examples:
 
 ```bash
-# Crop Lafan1 frames 100..400 -> unitree_rl_mjlab NPZ (29-DOF)
+# Crop Lafan1 trajectory between frames 100 and 150 -> unitree_rl_mjlab NPZ (29-DOF)
 python scripts/crop_trajectory.py \
     --path ~/.g1mocap/Lafan1/dance1_subject1.npz --source lafan1 --model g1_29dof \
-    --start 100 --stop 400
-# -> outputs/unitree_rl_mjlab/g1_29dof/dance1_subject1_crop100-400.npz
+    --start 100 --stop 150
+# -> outputs/unitree_rl_mjlab/g1_29dof/dance1_subject1_crop100-150.npz
 
 # Raise 3 cm, pad standing at both ends, resample to 50 Hz, preview first
 python scripts/crop_trajectory.py \
     --path <bones_seed.csv> --source bones_seed --model g1_29dof \
-    --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
+    --start 50 --stop 200 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
 ```
 
 | flag | meaning |
 |---|---|
+| `--path` | path to reference trajectory (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` (required) |
+| `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |
 | `--pad-standing` | add a standing pose + blended transition at each end (off by default) |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); defaults 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp) to this rate; default keeps the source fps |
-| `--format` | output format (`unitree_rl_mjlab`) |
+| `--format` | output format (`unitree_rl_mjlab`) (required) |
 | `--name` | output file stem (default derived from the source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 
-The `unitree_rl_mjlab` writer recreates upstream `csv_to_npz.py`'s output in **pure
-MuJoCo + numpy** (no `mjlab`/`torch`/CUDA): per output frame it forward-kinematics the
-model's *scene* XML for the full 30-body set (the 23-DOF scene pads with 6 dummy
-bodies) and derives velocities by finite difference (`np.gradient` for linear/joint,
-an SO3 central difference for angular). The NPZ holds `joint_pos`, `joint_vel`,
-`body_pos_w`, `body_quat_w` (wxyz), `body_lin_vel_w`, `body_ang_vel_w`, and `fps`
-(the root is body index 0; there is no separate root key).
-
 ## Assets
 
-`assets/robots/unitree_g1/` is vendored from `unitree_rl_mjlab`
-(`src/assets/robots/unitree_g1/`) to keep clipper self-contained and compatible:
+`assets/robots/unitree_g1/` is imported from `unitree_rl_mjlab`
+(`src/assets/robots/unitree_g1/`):
 
 | clipper file | upstream file |
 |---|---|
@@ -166,10 +156,3 @@ an SO3 central difference for angular). The NPZ holds `joint_pos`, `joint_vel`,
 | `xmls/scene_g1_29dof.xml` | `scene_g1.xml` (29-DOF + floor) |
 | `xmls/scene_g1_23dof.xml` | `scene_g1_23dof.xml` (23-DOF + floor) |
 | `xmls/assets/*.STL` | same (38 meshes) |
-
-The 29-DOF XMLs are renamed from upstream `g1*` to `g1_29dof*`; the files are
-self-contained (no `<include>`), so renaming is safe. Joint orderings and the
-standing "home" pose are extracted into `src/clipper/constants.py` (the upstream
-`*_constants.py` are `mjlab`-coupled and cannot be imported directly).
-
-To refresh assets after an upstream change, re-copy and re-rename as above.

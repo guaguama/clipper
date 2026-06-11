@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-src/clipper/__init__.py
-src/clipper/constants.py
-src/clipper.egg-info/PKG-INFO
-src/clipper.egg-info/SOURCES.txt
-src/clipper.egg-info/dependency_links.txt
-src/clipper.egg-info/requires.txt
-src/clipper.egg-info/top_level.txt

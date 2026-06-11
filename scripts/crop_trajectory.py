@@ -60,7 +60,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "Default: keep the source fps.",
     )
     p.add_argument(
-        "--format", default="unitree_rl_mjlab", choices=tuple(WRITERS),
+        "--format", required=True, choices=tuple(WRITERS),
         help="Output format.",
     )
     p.add_argument("--name", type=str, default=None, help="Output file stem (default derived).")
