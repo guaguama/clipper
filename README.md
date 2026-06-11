@@ -39,14 +39,14 @@ The three sources are read in place from `~/.g1mocap` with this layout:
 
 `DefaultDatasets` + `Lafan1` are the Unitree-G1 retargets from
 [`robfiras/loco-mujoco-datasets`](https://huggingface.co/datasets/robfiras/loco-mujoco-datasets); `bones_seed` is the G1 CSVs + metadata from
-[`bones-studio/seed`](https://huggingface.co/datasets/bones-studio/seed). Recreate the source directory with the Hugging Face CLI (May require access approval first):
+[`bones-studio/seed`](https://huggingface.co/datasets/bones-studio/seed). Recreate the source directory with the Hugging Face CLI (Assumes you
+have huggingface_hub installed and set up. May require access approval for each dataset first):
 
 ```bash
-pip install -U "huggingface_hub[cli]" 
 mkdir -p ~/.g1mocap
 
 # --- DefaultDatasets + Lafan1 (LocoMuJoCo G1 .npz) ---
-huggingface-cli download robfiras/loco-mujoco-datasets --repo-type dataset \
+hf download robfiras/loco-mujoco-datasets --repo-type dataset \
     --include "DefaultDatasets/mocap/UnitreeG1/*.npz" "Lafan1/mocap/UnitreeG1/*.npz" \
     --local-dir ~/.g1mocap/_locomujoco
 mkdir -p ~/.g1mocap/DefaultDatasets ~/.g1mocap/Lafan1
@@ -55,14 +55,14 @@ mv ~/.g1mocap/_locomujoco/Lafan1/mocap/UnitreeG1/*.npz          ~/.g1mocap/Lafan
 rm -rf ~/.g1mocap/_locomujoco
 
 # --- bones_seed (Bones Studio "seed": G1 CSVs + metadata; ~51 GB — large!) ---
-huggingface-cli download bones-studio/seed --repo-type dataset \
+hf download bones-studio/seed --repo-type dataset \
     --include "g1.tar.gz" "metadata/*" \
     --local-dir ~/.g1mocap/bones_seed
 tar -xzf ~/.g1mocap/bones_seed/g1.tar.gz --strip-components=1 -C ~/.g1mocap/bones_seed
 rm ~/.g1mocap/bones_seed/g1.tar.gz        # → ~/.g1mocap/bones_seed/csv/<date>/*.csv
 ```
 
-> `bones_seed` is ~51 GB across ~142k CSVs delivered as one `g1.tar.gz`, so it must be fetched whole;
+> `bones_seed` is ~51 GB across ~142k CSVs delivered as one `g1.tar.gz`, so it must be fetched whole and extracted.
 
 ## Visualizing Trajectories
 
