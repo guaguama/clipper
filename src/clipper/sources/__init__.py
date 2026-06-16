@@ -10,13 +10,17 @@ from __future__ import annotations
 from typing import Callable
 
 from ..trajectory import Trajectory
-from . import bones_seed, locomujoco
+from . import bones_seed, locomujoco, mj_nlp, unilab
 
 # DefaultDatasets and Lafan1 share the LocoMuJoCo npz format/loader.
 SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
     "default_datasets": locomujoco.load,
     "lafan1": locomujoco.load,
     "bones_seed": bones_seed.load,
+    # clipper's own unitree_rl_mjlab output, re-loadable for viz/re-crop.
+    "unilab": unilab.load,
+    # mj-nlp (sim-nlp) qpos/time CSV folder, re-loadable for viz/re-crop.
+    "mj_nlp": mj_nlp.load,
 }
 
 

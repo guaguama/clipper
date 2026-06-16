@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
 
     writer = get_writer(args.format)
     out = writer(traj, output_fps=args.output_fps, name=args.name)
-    print(f"Wrote {args.format} NPZ -> {out}")
+    print(f"Wrote {args.format} -> {out}")
 
     if args.save_video:
         _save_video(args.model, traj, out.with_suffix(".mp4"))

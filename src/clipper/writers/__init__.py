@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import unitree_rl_mjlab
+from . import mj_nlp, unitree_rl_mjlab
 
 WRITERS: dict[str, Callable[..., object]] = {
     "unitree_rl_mjlab": unitree_rl_mjlab.write,
+    "mj_nlp": mj_nlp.write,
 }
 
 

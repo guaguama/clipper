@@ -5,8 +5,9 @@ View, edit, and convert reference trajectories from a variety of mocap sources
 into formats suitable for downstream motion-tracking repos.
 
 - **Supported Sources**: `LocoMujoCo DefaultDatasets` (`.npz`),
-  `Lafan1` (`.npz`), `bones_seed` (`.csv`).
-- **Supported Outputs**: [`unitree_rl_mjlab`](../unitree_rl_mjlab)
+  `Lafan1` (`.npz`), `bones_seed` (`.csv`), `unilab` (`.npz`), `mj_nlp` (qpos/time CSV folder).
+- **Supported Outputs**: [`unitree_rl_mjlab`](../unitree_rl_mjlab),
+  `mj_nlp` (MuJoCo qpos + time CSV pair)
 
 **Entry points** (`scripts/`):
 
@@ -78,12 +79,16 @@ python scripts/visualize_trajectory.py \
 # bones_seed CSV -> 29-DOF G1 (cm->m, deg->rad, auto-grounded; plays at 120 Hz)
 python scripts/visualize_trajectory.py \
     --path <bones_seed.csv> --source bones_seed --model g1_29dof
+
+# unitree_rl_mjlab format
+python scripts/visualize_trajectory.py \
+    --path outputs/unitree_rl_mjlab/g1_29dof/<clip>.npz --source unilab --model g1_29dof
 ```
 
 | flag | meaning |
 |---|---|
 | `--path` | path to reference trajectory (required) |
-| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
 | `--fps` | playback rate override; defaults to the source's own fps |
@@ -133,14 +138,14 @@ python scripts/crop_trajectory.py \
 | flag | meaning |
 |---|---|
 | `--path` | path to reference trajectory (required) |
-| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |
 | `--pad-standing` | add a standing pose + blended transition at each end (off by default) |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); defaults 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp) to this rate; default keeps the source fps |
-| `--format` | output format (`unitree_rl_mjlab`) (required) |
+| `--format` | output format (`unitree_rl_mjlab` \| `mj_nlp`) (required) |
 | `--name` | output file stem (default derived from the source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 
