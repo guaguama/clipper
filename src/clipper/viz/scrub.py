@@ -24,6 +24,7 @@ import mujoco
 import mujoco.viewer
 
 from ..trajectory import Trajectory
+from .camera import center_on_pelvis
 from .replay import _default_render_flags_off, set_pose
 
 
@@ -150,6 +151,7 @@ def scrub(
     ) as v:
         viewer = v
         _default_render_flags_off(viewer)
+        center_on_pelvis(viewer.cam, traj.qpos[0])  # one-time start frame; user owns it after
 
         fig = plt.figure(figsize=(6.8, 1.9))
         try:

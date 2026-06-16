@@ -75,6 +75,7 @@ def _save_video(model_id: str, traj, path: Path) -> None:
         import imageio.v2 as imageio
         import mujoco
 
+        from clipper.viz.camera import center_on_pelvis
         from clipper.viz.replay import set_pose
     except Exception as exc:  # pragma: no cover - optional dep
         raise SystemExit(f"--save-video unavailable: {exc}")
@@ -91,10 +92,14 @@ def _save_video(model_id: str, traj, path: Path) -> None:
     # Match the interactive viewers: no shadows / reflections in the output video.
     renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
     renderer.scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
+    # Free camera, re-centered on the pelvis each frame: starts framed like the
+    # interactive viewers, then tracks the robot at a fixed world viewing angle.
+    cam = mujoco.MjvCamera()
     frames = []
     for k in range(traj.num_frames):
         set_pose(model, data, traj, k)
-        renderer.update_scene(data)
+        center_on_pelvis(cam, traj.qpos[k])
+        renderer.update_scene(data, cam)
         frames.append(renderer.render())
     renderer.close()
     path.parent.mkdir(parents=True, exist_ok=True)
