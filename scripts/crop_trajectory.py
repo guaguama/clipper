@@ -99,7 +99,7 @@ def _save_video(model_id: str, traj, path: Path) -> None:
     frames = []
     for k in range(traj.num_frames):
         set_pose(model, data, traj, k)
-        center_on_pelvis(cam, traj.qpos[k])
+        center_on_pelvis(cam, traj.qpos[k], traj.model)
         renderer.update_scene(data, cam)
         frames.append(renderer.render())
     renderer.close()

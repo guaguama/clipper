@@ -51,9 +51,18 @@ def apply_height_offset(traj: Trajectory, dz: float) -> Trajectory:
     )
 
 
+def _home_standing_qpos(model_id: str) -> np.ndarray:
+    """Upright home qpos: rule-based for G1, the first keyframe for MSK models."""
+    if model_id in constants.MSK_MODELS:
+        from .model import home_keyframe_qpos
+
+        return home_keyframe_qpos(model_id)
+    return constants.home_qpos(model_id)
+
+
 def _standing_qpos(traj: Trajectory, anchor: int) -> np.ndarray:
     """Home standing qpos, inheriting the anchor frame's xy + yaw (kept upright)."""
-    stand = constants.home_qpos(traj.model).copy()
+    stand = _home_standing_qpos(traj.model).copy()
     stand[0:2] = traj.qpos[anchor, 0:2]  # inherit ground xy
     stand[3:7] = mathx.yaw_only_quat(traj.qpos[anchor, 3:7])  # inherit heading only
     return stand

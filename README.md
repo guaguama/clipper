@@ -151,6 +151,55 @@ python scripts/crop_trajectory.py \
 | `--name` | output file stem (default derived from the source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 
+## Musculoskeletal (MSK) models
+
+In addition to the Unitree G1, clipper supports three musculoskeletal models from
+[`musclemimic`](../../01_projpegleg/musclemimic) and
+[`myo_sim`](../../01_projpegleg/myo_sim), vendored under `assets/msk/`:
+
+| `--model` | model | nq | base | source repo |
+|---|---|---|---|---|
+| `osl_ka` | MyoLeg80 with right-leg OSL prosthetic | 30 | free | musclemimic |
+| `myofullbody` | full-body MyoSkeleton (fingers disabled) | 89 | free | musclemimic |
+| `myolegs` | MyoLegs (biological, myo_sim) | 35 | free | myo_sim |
+
+These use a single new source/output format, **`musclemimic`**, for the retargeted
+clips in `~/.musclemimic/caches/AMASS/<Model>/` — self-describing LocoMuJoCo-style
+`.npz` (embed `qpos`, `qvel`, `frequency` = 100 Hz, `joint_names`, body/site FK).
+Joints are mapped **by name** into the target model, so clips load regardless of the
+model's exact DOF set.
+
+```bash
+# Visualize an OSL_KA walk clip
+python scripts/visualize_trajectory.py \
+    --path ~/.musclemimic/caches/AMASS/MyoLeg80_OSL_KA/gmr/KIT/7/WalkingStraightForwards01_poses.npz \
+    --source musclemimic --model osl_ka
+
+# Crop a full-body clip and write a round-trip musclemimic NPZ
+python scripts/crop_trajectory.py \
+    --path ~/.musclemimic/caches/AMASS/MyoFullBody/<clip>.npz \
+    --source musclemimic --model myofullbody --start 30 --stop 200 --format musclemimic
+# -> outputs/musclemimic/myofullbody/<clip>_crop30-200.npz
+```
+
+Add `musclemimic` to the `--source` choices (visualize + crop) and to the `--format`
+choices (crop). The `musclemimic` writer reproduces the full cache schema (velocities
+via `mj_differentiatePos`, body + mimic-site FK via `mj_forward`), so cropped clips are
+re-loadable by clipper and consumable by musclemimic.
+
+**Notes / caveats**
+- **`myolegs` has no retargeted clips of its own** — it is driven by the
+  `MyoLeg80_OSL_KA` cache (a full-body clip with the upper body removed). The
+  prosthetic right knee/ankle are renamed back to the biological joints
+  (`osl_knee_angle_r → knee_angle_r`, `osl_ankle_angle_r → ankle_angle_r`); the 4
+  `socket_*` DOFs are dropped and the right-knee coupler DOFs stay at 0 (a minor
+  visual approximation). Pass an `MyoLeg80_OSL_KA` clip with `--model myolegs`.
+- **`myofullbody` ships with fingers disabled** (the 40 finger joints are removed at
+  load, matching musclemimic's `disable_fingers=True` default) so nq = 89 matches the
+  caches. The standing-pose pad for MSK models seeds from the model's first keyframe.
+- MSK XMLs bundle their own scene (floor/lights/cameras), so `--no-floor` is a no-op
+  for them; viewers use their own pelvis-centered free camera and ignore scene cameras.
+
 ## Assets
 
 `assets/robots/unitree_g1/` is imported from `unitree_rl_mjlab`

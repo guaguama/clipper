@@ -32,6 +32,16 @@ G1_29DOF_SCENE_XML: Path = _XML_DIR / "scene_g1_29dof.xml"
 G1_23DOF_SCENE_XML: Path = _XML_DIR / "scene_g1_23dof.xml"
 
 # --------------------------------------------------------------------------- #
+# Musculoskeletal (MSK) models, vendored under assets/msk (see clipper memory).
+# Each main XML already <include>s its own scene (floor/lights/skybox/cameras),
+# so it is loaded directly — no programmatic floor injection (see model.py).
+# --------------------------------------------------------------------------- #
+_MSK_DIR: Path = REPO_ROOT / "assets" / "msk"
+MYOLEGS_OSL_KA_XML: Path = _MSK_DIR / "myoLeg80_OSL_KA" / "myolegs_OSL_KA.xml"
+MYOFULLBODY_XML: Path = _MSK_DIR / "musclemimic_models" / "body" / "myofullbody.xml"
+MYOLEGS_XML: Path = _MSK_DIR / "myo_sim" / "leg" / "myolegs.xml"
+
+# --------------------------------------------------------------------------- #
 # Joint orderings (verbatim from csv_to_npz.py:337-395).
 # --------------------------------------------------------------------------- #
 G1_29DOF_JOINT_NAMES: tuple[str, ...] = (
@@ -101,6 +111,9 @@ JOINT_NAMES: dict[str, tuple[str, ...]] = {
 ROBOT_XML: dict[str, Path] = {
     "g1_29dof": G1_29DOF_XML,
     "g1_23dof": G1_23DOF_XML,
+    "osl_ka": MYOLEGS_OSL_KA_XML,
+    "myofullbody": MYOFULLBODY_XML,
+    "myolegs": MYOLEGS_XML,
 }
 
 SCENE_XML: dict[str, Path] = {
@@ -108,7 +121,13 @@ SCENE_XML: dict[str, Path] = {
     "g1_23dof": G1_23DOF_SCENE_XML,
 }
 
-MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof")
+# MSK models are loaded via assets/msk XMLs that already bundle a scene; they
+# carry no separate bare/scene split and use the musculoskeletal source/writer.
+MSK_MODELS: frozenset[str] = frozenset(
+    ("osl_ka", "myofullbody", "myolegs")
+)
+
+MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof", *sorted(MSK_MODELS))
 
 # --------------------------------------------------------------------------- #
 # Trajectory sources (clipper `--source` values; no autodetection).
@@ -124,12 +143,104 @@ SOURCES: tuple[str, ...] = (
     "bones_seed",
     "unilab",
     "mj_nlp",
+    # musclemimic retargeted clips in ~/.musclemimic/caches (self-describing npz);
+    # the matching round-trip writer re-emits this schema. See sources/musclemimic.py.
+    "musclemimic",
 )
 
 # bones_seed CSVs carry no frame rate, but the source capture rate is 120 Hz —
 # verified from the dataset's seed metadata (move_duration_frames / temporal-label
 # event seconds clusters tightly at 120 across ~142k clips). Override via `--fps`.
 BONES_SEED_DEFAULT_FPS: float = 120.0
+
+# musclemimic caches store `frequency` (100 Hz for the current AMASS retargets);
+# used only as a fallback if a file is missing it. Override via `--fps`.
+MUSCLEMIMIC_DEFAULT_FPS: float = 100.0
+
+# --------------------------------------------------------------------------- #
+# MSK joint remap: the myo_sim `myolegs` model has no retargeted trajectories of
+# its own, so it is driven by the `MyoLeg80_OSL_KA` cache (a full-body clip with
+# the upper body removed). The biological left leg shares joint names verbatim;
+# the right leg's prosthetic knee/ankle were renamed but hold the same biological
+# values, so we rename them back. The 4 `socket_*` DOFs have no biological
+# counterpart and are dropped (negligible); right-knee coupler DOFs stay 0 (a
+# minor visual approximation). Verified by FK: feet grounded, right knee mirrors
+# the left with matching sign.
+MYOLEGS_OSL_ALIASES: dict[str, str] = {
+    "osl_knee_angle_r": "knee_angle_r",
+    "osl_ankle_angle_r": "ankle_angle_r",
+}
+
+# --------------------------------------------------------------------------- #
+# Mimic-site definitions (body_name -> site_name), replicated verbatim from
+# musclemimic's per-env `body2sites_for_mimic` dicts. These `*_mimic` sites are
+# NOT in the bare XMLs — musclemimic injects them at build time; clipper does the
+# same in model.load_model so the round-trip writer can reproduce the cache's
+# site_xpos/site_xmat block. `myolegs` mirrors OSL_KA's 9-site layout but uses the
+# biological right-leg bodies (no OSL assemblies).
+# MSK joints to delete from the spec before compiling, per model. musclemimic
+# builds MyoFullBody with `disable_fingers=True` by default, removing these 40
+# finger joints (nq 129->89, nv 128->88, njnt 123->83; finger bodies stay, so
+# nbody is unchanged at 102) — matching the retargeted caches' layout exactly.
+# Removing the joints is sufficient for cache parity; muscles/tendons aren't in
+# the cache schema and don't affect kinematics, so they are left in place.
+MSK_REMOVE_JOINTS: dict[str, tuple[str, ...]] = {
+    "myofullbody": tuple(
+        f"{j}_{side}"
+        for side in ("r", "l")
+        for j in (
+            "cmc_flexion", "cmc_abduction", "mp_flexion", "ip_flexion",
+            "mcp2_flexion", "mcp2_abduction", "mcp3_flexion", "mcp3_abduction",
+            "mcp4_flexion", "mcp4_abduction", "mcp5_flexion", "mcp5_abduction",
+            "md2_flexion", "md3_flexion", "md4_flexion", "md5_flexion",
+            "pm2_flexion", "pm3_flexion", "pm4_flexion", "pm5_flexion",
+        )
+    ),
+}
+
+MSK_MIMIC_SITES: dict[str, dict[str, str]] = {
+    "osl_ka": {
+        "pelvis": "pelvis_mimic",
+        "femur_l": "left_hip_mimic",
+        "tibia_l": "left_knee_mimic",
+        "talus_l": "left_ankle_mimic",
+        "toes_l": "left_toes_mimic",
+        "femur_r": "right_hip_mimic",
+        "osl_knee_assembly": "right_knee_mimic",
+        "osl_ankle_assembly": "right_ankle_mimic",
+        "osl_foot_assembly": "right_toes_mimic",
+    },
+    "myofullbody": {
+        "pelvis": "pelvis_mimic",
+        "lumbar1": "upper_body_mimic",
+        "head": "head_mimic",
+        "humerus_l": "left_shoulder_mimic",
+        "ulna_l": "left_elbow_mimic",
+        "lunate_l": "left_hand_mimic",
+        "humerus_r": "right_shoulder_mimic",
+        "ulna_r": "right_elbow_mimic",
+        "lunate_r": "right_hand_mimic",
+        "femur_l": "left_hip_mimic",
+        "tibia_l": "left_knee_mimic",
+        "talus_l": "left_ankle_mimic",
+        "toes_l": "left_toes_mimic",
+        "femur_r": "right_hip_mimic",
+        "tibia_r": "right_knee_mimic",
+        "talus_r": "right_ankle_mimic",
+        "toes_r": "right_toes_mimic",
+    },
+    "myolegs": {
+        "pelvis": "pelvis_mimic",
+        "femur_l": "left_hip_mimic",
+        "tibia_l": "left_knee_mimic",
+        "talus_l": "left_ankle_mimic",
+        "toes_l": "left_toes_mimic",
+        "femur_r": "right_hip_mimic",
+        "tibia_r": "right_knee_mimic",
+        "talus_r": "right_ankle_mimic",
+        "toes_r": "right_toes_mimic",
+    },
+}
 
 # --------------------------------------------------------------------------- #
 # Standing "home" pose (HOME_KEYFRAME, identical for both models).

@@ -151,7 +151,7 @@ def scrub(
     ) as v:
         viewer = v
         _default_render_flags_off(viewer)
-        center_on_pelvis(viewer.cam, traj.qpos[0])  # one-time start frame; user owns it after
+        center_on_pelvis(viewer.cam, traj.qpos[0], traj.model)  # one-time start frame; user owns it after
 
         fig = plt.figure(figsize=(6.8, 1.9))
         try:

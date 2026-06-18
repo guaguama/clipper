@@ -72,7 +72,7 @@ def replay(
         model, data, show_left_ui=False, show_right_ui=False
     ) as viewer:
         _default_render_flags_off(viewer)
-        center_on_pelvis(viewer.cam, traj.qpos[0])  # one-time start frame; user owns it after
+        center_on_pelvis(viewer.cam, traj.qpos[0], traj.model)  # one-time start frame; user owns it after
         k = 0
         while viewer.is_running():
             tic = time.perf_counter()

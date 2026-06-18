@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable
 
 from ..trajectory import Trajectory
-from . import bones_seed, locomujoco, mj_nlp, unilab
+from . import bones_seed, locomujoco, mj_nlp, musclemimic, unilab
 
 # DefaultDatasets and Lafan1 share the LocoMuJoCo npz format/loader.
 SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
@@ -21,6 +21,8 @@ SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
     "unilab": unilab.load,
     # mj-nlp (sim-nlp) qpos/time CSV folder, re-loadable for viz/re-crop.
     "mj_nlp": mj_nlp.load,
+    # musclemimic retargeted caches + clipper's round-trip output (self-describing).
+    "musclemimic": musclemimic.load,
 }
 
 

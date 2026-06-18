@@ -1,9 +1,15 @@
-"""Load a MuJoCo G1 model for visualization.
+"""Load a MuJoCo model (Unitree G1 or musculoskeletal) for visualization.
 
-Uses the *bare* robot XMLs (clean ``nq = 7 + DOF`` for both models), which avoids
-the placeholder dummy bodies in ``scene_g1_23dof.xml`` (parked at z=20). When a
-ground plane is wanted, it is added programmatically via ``MjSpec`` so the qpos
-layout stays identical across models.
+For the **G1** models this uses the *bare* robot XMLs (clean ``nq = 7 + DOF``),
+which avoids the placeholder dummy bodies in ``scene_g1_23dof.xml`` (parked at
+z=20); a ground plane is added programmatically via ``MjSpec`` when wanted, so the
+qpos layout stays identical across models.
+
+For the **MSK** models (``assets/msk``) the main XML already ``<include>``s its own
+scene (floor/lights/skybox/cameras), so it is compiled directly. The ``*_mimic``
+tracking sites are injected via ``MjSpec`` (as musclemimic does at build time) so
+the round-trip writer can reproduce the cache's site FK; they are group-4 geoms,
+hidden in the viewer by default. The ``floor`` argument is a no-op for MSK models.
 """
 
 from __future__ import annotations
@@ -14,12 +20,48 @@ import numpy as np
 from . import constants
 
 
+def _remove_joints(spec: "mujoco.MjSpec", joint_names: tuple[str, ...]) -> None:
+    """Delete the named joints from the spec (mirrors musclemimic finger disabling).
+
+    Joints absent from the spec are ignored. Bodies are left intact (they weld to
+    their parent), so body indexing matches musclemimic's cached models.
+    """
+    drop = set(joint_names)
+    for joint in [j for j in spec.joints if j.name in drop]:
+        spec.delete(joint)
+
+
+def _add_mimic_sites(spec: "mujoco.MjSpec", body2site: dict[str, str]) -> None:
+    """Inject ``*_mimic`` tracking sites onto named bodies (mirrors musclemimic).
+
+    Each site is a small invisible (group 4) box at the body origin. Bodies absent
+    from the spec are skipped so the same dict tolerates trimmed model variants.
+    """
+    for body_name, site_name in body2site.items():
+        try:
+            body = spec.body(body_name)
+        except (KeyError, ValueError):
+            continue
+        if body is None:
+            continue
+        body.add_site(
+            name=site_name,
+            group=4,
+            type=mujoco.mjtGeom.mjGEOM_BOX,
+            size=[0.075, 0.05, 0.025],
+            rgba=[1.0, 0.0, 0.0, 0.5],
+            pos=[0.0, 0.0, 0.0],
+        )
+
+
 def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
     """Compile and return the MuJoCo model for `model_id`.
 
     Args:
-        model_id: ``"g1_29dof"`` or ``"g1_23dof"``.
-        floor: If True, add a ground-plane geom and a light to the world.
+        model_id: a G1 id (``"g1_29dof"``/``"g1_23dof"``) or an MSK id
+            (``"osl_ka"``/``"myofullbody"``/``"myolegs"``).
+        floor: If True, add a ground-plane geom and a light to the world. Ignored
+            for MSK models (their bundled scene already provides one).
 
     Returns:
         Compiled ``mujoco.MjModel``. qpos layout is ``[base(7), joints(DOF)]``.
@@ -29,6 +71,12 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
             f"Unknown model {model_id!r}; expected one of {constants.MODELS}."
         )
     xml_path = str(constants.ROBOT_XML[model_id])
+
+    if model_id in constants.MSK_MODELS:
+        spec = mujoco.MjSpec.from_file(xml_path)
+        _remove_joints(spec, constants.MSK_REMOVE_JOINTS.get(model_id, ()))
+        _add_mimic_sites(spec, constants.MSK_MIMIC_SITES.get(model_id, {}))
+        return spec.compile()
 
     if not floor:
         return mujoco.MjModel.from_xml_path(xml_path)
@@ -86,3 +134,18 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
     floor_geom.material = "groundplane"
 
     return spec.compile()
+
+
+def home_keyframe_qpos(model_id: str) -> np.ndarray:
+    """Return the model's first keyframe qpos (the MSK standing-pose source).
+
+    The G1 home pose is rule-based (``constants.home_qpos``); the MSK models ship
+    real ``<key>`` keyframes, so the standing-pose pad seeds from ``key_qpos[0]``.
+
+    Raises:
+        ValueError: if the model defines no keyframes.
+    """
+    model = load_model(model_id)
+    if model.nkey < 1:
+        raise ValueError(f"Model {model_id!r} has no keyframe to use as a home pose.")
+    return np.array(model.key_qpos[0], dtype=np.float64)
