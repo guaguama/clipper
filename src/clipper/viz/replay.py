@@ -34,10 +34,21 @@ def set_pose(
     traj: Trajectory,
     frame: int,
     z_offset: float = 0.0,
+    joint_offsets: dict[int, float] | None = None,
 ) -> None:
-    """Place the model at trajectory frame `frame`, optionally raised by z_offset."""
+    """Place the model at trajectory frame `frame`, with optional pose offsets.
+
+    Args:
+        z_offset: meters added to the base height (qpos[2]).
+        joint_offsets: optional ``{qpos_address: delta_radians}`` added to specific
+            joints (e.g. the scrub viewer's right-ankle correction). ``None`` leaves
+            the pose untouched, so replay / video output are unaffected.
+    """
     data.qpos[:] = traj.qpos[frame]
     data.qpos[2] += z_offset
+    if joint_offsets:
+        for adr, delta in joint_offsets.items():
+            data.qpos[adr] += delta
     mujoco.mj_forward(model, data)
 
 

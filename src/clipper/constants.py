@@ -129,6 +129,16 @@ MSK_MODELS: frozenset[str] = frozenset(
 
 MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof", *sorted(MSK_MODELS))
 
+# Right-ankle joint per model — the single hinge used by the scrub viewer's R-ankle
+# slider and crop's `--ankle-offset` (a global degree delta added to that joint, to
+# flatten the OSL prosthetic foot driven by raw biological measurements). Resolved
+# to a qpos address at runtime via `qpos.joint_qpos_address`. Intentionally limited
+# to `osl_ka`: this correction is prosthesis-specific, so other models get no R-ankle
+# slider (scrub) and a clear error from `--ankle-offset` (crop).
+RIGHT_ANKLE_JOINT: dict[str, str] = {
+    "osl_ka": "osl_ankle_angle_r",
+}
+
 # --------------------------------------------------------------------------- #
 # Trajectory sources (clipper `--source` values; no autodetection).
 # --------------------------------------------------------------------------- #

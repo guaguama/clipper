@@ -200,6 +200,14 @@ re-loadable by clipper and consumable by musclemimic.
 - MSK XMLs bundle their own scene (floor/lights/cameras), so `--no-floor` is a no-op
   for them; viewers use their own pelvis-centered free camera and ignore scene cameras.
 
+**Prosthesis right-ankle correction.** The OSL joints are driven by raw biological
+measurements, so the prosthetic foot may not sit fully flat. In `scrub` mode an
+**R-ankle** slider (keys `z` / `c` = ±1°) applies a global right-ankle offset; press
+`f` to print the current value alongside the frame/z marker. Bake the value you found
+into a clip with `crop_trajectory.py --ankle-offset <deg>` (adds it to the right-ankle
+joint of every frame). This is `osl_ka`-only (joint `osl_ankle_angle_r`): other models
+get no R-ankle slider and `--ankle-offset` errors on them.
+
 ## Assets
 
 `assets/robots/unitree_g1/` is imported from `unitree_rl_mjlab`

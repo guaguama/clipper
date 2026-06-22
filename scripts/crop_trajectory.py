@@ -24,6 +24,7 @@ from pathlib import Path
 
 from clipper import constants, edits
 from clipper.model import load_model
+from clipper.qpos import joint_qpos_address
 from clipper.sources import get_loader
 from clipper.writers import WRITERS, get_writer
 
@@ -46,6 +47,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--height-offset", type=float, default=0.0,
         help="Global z offset (m) added to every frame's base height.",
+    )
+    p.add_argument(
+        "--ankle-offset", type=float, default=0.0,
+        help="Global offset (deg) added to the right-ankle joint of every frame "
+        "(flattens the OSL prosthetic foot). Matches scrub's R-ankle slider.",
     )
     p.add_argument(
         "--pad-standing", action="store_true",
@@ -119,6 +125,15 @@ def main(argv: list[str] | None = None) -> None:
 
     traj = edits.crop(traj, args.start, args.stop)
     traj = edits.apply_height_offset(traj, args.height_offset)
+    if args.ankle_offset != 0.0:
+        ankle_name = constants.RIGHT_ANKLE_JOINT.get(args.model)
+        ankle_adr = joint_qpos_address(model, ankle_name) if ankle_name else None
+        if ankle_adr is None:
+            raise SystemExit(
+                f"--ankle-offset is not supported for model {args.model!r} "
+                "(no mapped right-ankle joint)."
+            )
+        traj = edits.apply_ankle_offset(traj, ankle_adr, args.ankle_offset)
     if args.pad_standing:
         traj = edits.pad_standing(
             traj, args.pre_static, args.pre_blend, args.post_static, args.post_blend
