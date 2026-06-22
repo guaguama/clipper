@@ -8,12 +8,13 @@ Examples:
     # Crop Lafan1 frames 100..400 and write a unitree_rl_mjlab NPZ
     python scripts/crop_trajectory.py \
         --path ~/.g1mocap/Lafan1/dance1_subject1.npz --source lafan1 --model g1_29dof \
-        --start 100 --stop 400
+        --start 100 --stop 400 --format unilab
 
     # Crop, raise 3 cm, pad standing at both ends, resample to 50 Hz, preview
     python scripts/crop_trajectory.py \
         --path <bones_seed.csv> --source bones_seed --model g1_29dof \
-        --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
+        --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 \
+        --format mj_nlp --visualize
 """
 
 from __future__ import annotations

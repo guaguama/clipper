@@ -6,7 +6,8 @@ into formats suitable for downstream motion-tracking repos.
 
 - **Supported Sources**: `LocoMujoCo DefaultDatasets` (`.npz`),
   `Lafan1` (`.npz`), `bones_seed` (`.csv`), `unilab` (`.npz`), `mj_nlp` (qpos/time CSV folder).
-- **Supported Outputs**: [`unitree_rl_mjlab`](../unitree_rl_mjlab),
+- **Supported Outputs**: `unilab` (motion NPZ for
+  [`unitree_rl_mjlab`](../unitree_rl_mjlab)),
   `mj_nlp` (MuJoCo qpos + time CSV pair)
 
 **Entry points** (`scripts/`):
@@ -119,19 +120,20 @@ Close either window to quit.
 ## Cropping & converting trajectories
 
 `crop_trajectory.py` runs **load → crop → height-offset → (optional) standing pad →
-write**, producing a downstream motion file under `outputs/<format>/<model>/`. The standing
+write**, producing a downstream motion file under `outputs/` (e.g.
+`outputs/unitree_rl_mjlab/<model>/` for `unilab`, `outputs/mj_nlp/<model>/` for `mj_nlp`). The standing
 pose pad prepends and appends a standing pose to the trajectory. Examples:
 
 ```bash
 # Crop Lafan1 trajectory between frames 100 and 150 -> unitree_rl_mjlab NPZ (29-DOF)
 python scripts/crop_trajectory.py \
     --path ~/.g1mocap/Lafan1/dance1_subject1.npz --source lafan1 --model g1_29dof \
-    --start 100 --stop 150
+    --start 100 --stop 150 --format unilab
 # -> outputs/unitree_rl_mjlab/g1_29dof/dance1_subject1_crop100-150.npz
 
 # Raise 3 cm, pad standing at both ends, resample to 50 Hz, preview first
 python scripts/crop_trajectory.py \
-    --path <bones_seed.csv> --source bones_seed --model g1_29dof \
+    --path <bones_seed.csv> --source bones_seed --model g1_29dof --format unilab \
     --start 50 --stop 200 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
 ```
 
@@ -145,7 +147,7 @@ python scripts/crop_trajectory.py \
 | `--pad-standing` | add a standing pose + blended transition at each end (off by default) |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); defaults 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp) to this rate; default keeps the source fps |
-| `--format` | output format (`unitree_rl_mjlab` \| `mj_nlp`) (required) |
+| `--format` | output format (`unilab` \| `mj_nlp`) (required) |
 | `--name` | output file stem (default derived from the source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 

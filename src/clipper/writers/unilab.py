@@ -1,4 +1,7 @@
-"""Write a `Trajectory` to the `unitree_rl_mjlab` motion-tracking NPZ format.
+"""Write a `Trajectory` to the unitree_rl_mjlab motion-tracking NPZ format.
+
+Registered as the ``unilab`` output format (matching the ``unilab`` source id);
+the on-disk layout under ``outputs/unitree_rl_mjlab/<model>/`` is unchanged.
 
 Recreates the output of upstream ``unitree_rl_mjlab/scripts/csv_to_npz.py`` using
 only MuJoCo + numpy (no torch/mjlab/CUDA). The NPZ holds, per output frame:

@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import mj_nlp, unitree_rl_mjlab
+from . import mj_nlp, unilab
 
 WRITERS: dict[str, Callable[..., object]] = {
-    "unitree_rl_mjlab": unitree_rl_mjlab.write,
+    # `unilab` writes the unitree_rl_mjlab motion NPZ (file layout under
+    # outputs/unitree_rl_mjlab/<model>/ is unchanged); matches the source id.
+    "unilab": unilab.write,
     "mj_nlp": mj_nlp.write,
 }
 
