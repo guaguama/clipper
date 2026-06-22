@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import mj_nlp, musclemimic, unitree_rl_mjlab
+from . import mj_nlp, musclemimic, unilab
 
 WRITERS: dict[str, Callable[..., object]] = {
     # `unilab` writes the unitree_rl_mjlab motion NPZ (file layout under
