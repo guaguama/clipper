@@ -13,10 +13,18 @@ Because the file carries its own ``joint_names``, one loader serves every MSK mo
 — joints are mapped *by name* into the target model via ``build_qpos`` (joints the
 model lacks are dropped, e.g. finger DOFs or the OSL ``socket_*`` joints).
 
-The myo_sim ``myolegs`` model has no cache of its own and is driven by the
-``MyoLeg80_OSL_KA`` cache: source joint names are first remapped through
-``constants.MYOLEGS_OSL_ALIASES`` (``osl_knee_angle_r -> knee_angle_r`` etc.) so the
-prosthetic right-leg angles land on the biological joints. See [[clipper-data-sources]].
+Some models need per-model joint renames before the by-name mapping, configured in
+``constants.MUSCLEMIMIC_SOURCE_ALIASES``:
+
+- ``myolegs`` has no cache of its own and is driven by the ``MyoLeg80_OSL_KA`` cache:
+  ``osl_knee_angle_r -> knee_angle_r`` etc. so the prosthetic right-leg angles land on
+  the biological joints.
+- ``osl_fullbody`` is driven directly by the ``MyoFullBody`` cache (same base/joint
+  convention, so no reorientation): the source's biological right ``knee_angle_r`` /
+  ``ankle_angle_r`` are renamed onto the prosthesis hinges ``osl_knee_angle_r`` /
+  ``osl_ankle_angle_r`` so the prosthetic leg follows the motion.
+
+See [[clipper-data-sources]].
 """
 
 from __future__ import annotations
@@ -64,8 +72,10 @@ def load(
             f"{path.name}: qpos width {raw.shape[1]} != 7 + {len(dof_names)} joints."
         )
 
-    # Drive myo_sim `myolegs` from the OSL_KA cache by renaming prosthetic joints.
-    aliases = constants.MYOLEGS_OSL_ALIASES if model_id == "myolegs" else {}
+    # Per-model joint renames (e.g. drive `myolegs` from the OSL_KA cache, or drive
+    # `osl_fullbody`'s prosthesis hinges from the MyoFullBody cache's biological right
+    # knee/ankle). Models absent from the map use cache joint names verbatim.
+    aliases = constants.MUSCLEMIMIC_SOURCE_ALIASES.get(model_id, {})
     joint_angles = {
         aliases.get(name, name): raw[:, 7 + i] for i, name in enumerate(dof_names)
     }

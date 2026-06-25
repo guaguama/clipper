@@ -40,6 +40,9 @@ _MSK_DIR: Path = REPO_ROOT / "assets" / "msk"
 MYOLEGS_OSL_KA_XML: Path = _MSK_DIR / "myoLeg80_OSL_KA" / "myolegs_OSL_KA.xml"
 MYOFULLBODY_XML: Path = _MSK_DIR / "musclemimic_models" / "body" / "myofullbody.xml"
 MYOLEGS_XML: Path = _MSK_DIR / "myo_sim" / "leg" / "myolegs.xml"
+# MyoFullBody with the right leg amputated transfemorally + OSL knee-ankle prosthesis
+# (self-contained folder; same base/joint conventions as myofullbody).
+OSL_FULLBODY_XML: Path = _MSK_DIR / "osl_fullbody" / "body" / "osl_fullbody.xml"
 
 # --------------------------------------------------------------------------- #
 # Joint orderings (verbatim from csv_to_npz.py:337-395).
@@ -114,6 +117,7 @@ ROBOT_XML: dict[str, Path] = {
     "osl_ka": MYOLEGS_OSL_KA_XML,
     "myofullbody": MYOFULLBODY_XML,
     "myolegs": MYOLEGS_XML,
+    "osl_fullbody": OSL_FULLBODY_XML,
 }
 
 SCENE_XML: dict[str, Path] = {
@@ -124,7 +128,7 @@ SCENE_XML: dict[str, Path] = {
 # MSK models are loaded via assets/msk XMLs that already bundle a scene; they
 # carry no separate bare/scene split and use the musculoskeletal source/writer.
 MSK_MODELS: frozenset[str] = frozenset(
-    ("osl_ka", "myofullbody", "myolegs")
+    ("osl_ka", "myofullbody", "myolegs", "osl_fullbody")
 )
 
 MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof", *sorted(MSK_MODELS))
@@ -134,9 +138,11 @@ MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof", *sorted(MSK_MODELS))
 # flatten the OSL prosthetic foot driven by raw biological measurements). Resolved
 # to a qpos address at runtime via `qpos.joint_qpos_address`. Intentionally limited
 # to `osl_ka`: this correction is prosthesis-specific, so other models get no R-ankle
-# slider (scrub) and a clear error from `--ankle-offset` (crop).
+# slider (scrub) and a clear error from `--ankle-offset` (crop). `osl_fullbody` carries
+# the same OSL prosthesis, so it gets the same right-ankle hinge.
 RIGHT_ANKLE_JOINT: dict[str, str] = {
     "osl_ka": "osl_ankle_angle_r",
+    "osl_fullbody": "osl_ankle_angle_r",
 }
 
 # --------------------------------------------------------------------------- #
@@ -181,6 +187,24 @@ MYOLEGS_OSL_ALIASES: dict[str, str] = {
     "osl_ankle_angle_r": "ankle_angle_r",
 }
 
+# `osl_fullbody` is the inverse case: it is driven directly by the *MyoFullBody* cache
+# (same base/joint convention, so no reorientation), but its amputated right leg has no
+# biological knee/ankle — the prosthesis hinges must be fed from the source's biological
+# right knee/ankle so the prosthetic leg follows the motion (otherwise it stays rigid).
+# The source's other right-leg DOFs (knee couplers, subtalar, mtp) are absent from the
+# model and drop; the OSL `socket_*` DOFs are absent from the cache and stay 0.
+OSL_FULLBODY_ALIASES: dict[str, str] = {
+    "knee_angle_r": "osl_knee_angle_r",
+    "ankle_angle_r": "osl_ankle_angle_r",
+}
+
+# Per-model joint renames applied by the musclemimic source loader before name-based
+# qpos assembly. Models absent here use their cache joint names verbatim.
+MUSCLEMIMIC_SOURCE_ALIASES: dict[str, dict[str, str]] = {
+    "myolegs": MYOLEGS_OSL_ALIASES,
+    "osl_fullbody": OSL_FULLBODY_ALIASES,
+}
+
 # --------------------------------------------------------------------------- #
 # Mimic-site definitions (body_name -> site_name), replicated verbatim from
 # musclemimic's per-env `body2sites_for_mimic` dicts. These `*_mimic` sites are
@@ -194,18 +218,23 @@ MYOLEGS_OSL_ALIASES: dict[str, str] = {
 # nbody is unchanged at 102) — matching the retargeted caches' layout exactly.
 # Removing the joints is sufficient for cache parity; muscles/tendons aren't in
 # the cache schema and don't affect kinematics, so they are left in place.
+# The 40 finger joints (both hands) that musclemimic's `disable_fingers=True` removes;
+# shared by every full-body myo model (myofullbody and the OSL full-body variant).
+_MYO_FINGER_JOINTS: tuple[str, ...] = tuple(
+    f"{j}_{side}"
+    for side in ("r", "l")
+    for j in (
+        "cmc_flexion", "cmc_abduction", "mp_flexion", "ip_flexion",
+        "mcp2_flexion", "mcp2_abduction", "mcp3_flexion", "mcp3_abduction",
+        "mcp4_flexion", "mcp4_abduction", "mcp5_flexion", "mcp5_abduction",
+        "md2_flexion", "md3_flexion", "md4_flexion", "md5_flexion",
+        "pm2_flexion", "pm3_flexion", "pm4_flexion", "pm5_flexion",
+    )
+)
+
 MSK_REMOVE_JOINTS: dict[str, tuple[str, ...]] = {
-    "myofullbody": tuple(
-        f"{j}_{side}"
-        for side in ("r", "l")
-        for j in (
-            "cmc_flexion", "cmc_abduction", "mp_flexion", "ip_flexion",
-            "mcp2_flexion", "mcp2_abduction", "mcp3_flexion", "mcp3_abduction",
-            "mcp4_flexion", "mcp4_abduction", "mcp5_flexion", "mcp5_abduction",
-            "md2_flexion", "md3_flexion", "md4_flexion", "md5_flexion",
-            "pm2_flexion", "pm3_flexion", "pm4_flexion", "pm5_flexion",
-        )
-    ),
+    "myofullbody": _MYO_FINGER_JOINTS,
+    "osl_fullbody": _MYO_FINGER_JOINTS,
 }
 
 MSK_MIMIC_SITES: dict[str, dict[str, str]] = {
@@ -249,6 +278,27 @@ MSK_MIMIC_SITES: dict[str, dict[str, str]] = {
         "tibia_r": "right_knee_mimic",
         "talus_r": "right_ankle_mimic",
         "toes_r": "right_toes_mimic",
+    },
+    # Full body like `myofullbody`, but the amputated right leg's knee/ankle/toes track
+    # the OSL prosthesis bodies (as in `osl_ka`).
+    "osl_fullbody": {
+        "pelvis": "pelvis_mimic",
+        "lumbar1": "upper_body_mimic",
+        "head": "head_mimic",
+        "humerus_l": "left_shoulder_mimic",
+        "ulna_l": "left_elbow_mimic",
+        "lunate_l": "left_hand_mimic",
+        "humerus_r": "right_shoulder_mimic",
+        "ulna_r": "right_elbow_mimic",
+        "lunate_r": "right_hand_mimic",
+        "femur_l": "left_hip_mimic",
+        "tibia_l": "left_knee_mimic",
+        "talus_l": "left_ankle_mimic",
+        "toes_l": "left_toes_mimic",
+        "femur_r": "right_hip_mimic",
+        "osl_knee_assembly": "right_knee_mimic",
+        "osl_ankle_assembly": "right_ankle_mimic",
+        "osl_foot_assembly": "right_toes_mimic",
     },
 }
 

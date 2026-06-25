@@ -153,7 +153,7 @@ python scripts/crop_trajectory.py \
 
 ## Musculoskeletal (MSK) models
 
-In addition to the Unitree G1, clipper supports three musculoskeletal models from
+In addition to the Unitree G1, clipper supports four musculoskeletal models from
 [`musclemimic`](../../01_projpegleg/musclemimic) and
 [`myo_sim`](../../01_projpegleg/myo_sim), vendored under `assets/msk/`:
 
@@ -162,6 +162,7 @@ In addition to the Unitree G1, clipper supports three musculoskeletal models fro
 | `osl_ka` | MyoLeg80 with right-leg OSL prosthetic | 30 | free | musclemimic |
 | `myofullbody` | full-body MyoSkeleton (fingers disabled) | 89 | free | musclemimic |
 | `myolegs` | MyoLegs (biological, myo_sim) | 35 | free | myo_sim |
+| `osl_fullbody` | full-body MyoSkeleton with right-leg OSL prosthetic (fingers disabled) | 84 | free | clipper (myofullbody + OSL graft) |
 
 These use a single new source/output format, **`musclemimic`**, for the retargeted
 clips in `~/.musclemimic/caches/AMASS/<Model>/` — self-describing LocoMuJoCo-style
@@ -180,6 +181,13 @@ python scripts/crop_trajectory.py \
     --path ~/.musclemimic/caches/AMASS/MyoFullBody/<clip>.npz \
     --source musclemimic --model myofullbody --start 30 --stop 200 --format musclemimic
 # -> outputs/musclemimic/myofullbody/<clip>_crop30-200.npz
+
+# Drive the OSL full-body model from a MyoFullBody clip (prosthesis follows the
+# biological right knee/ankle), bake a 5° right-ankle correction, write a round-trip NPZ
+python scripts/crop_trajectory.py \
+    --path ~/.musclemimic/caches/AMASS/MyoFullBody/<clip>.npz \
+    --source musclemimic --model osl_fullbody --ankle-offset 5 --format musclemimic
+# -> outputs/musclemimic/osl_fullbody/<clip>_..._ankle+5.npz
 ```
 
 Add `musclemimic` to the `--source` choices (visualize + crop) and to the `--format`
@@ -197,6 +205,14 @@ re-loadable by clipper and consumable by musclemimic.
 - **`myofullbody` ships with fingers disabled** (the 40 finger joints are removed at
   load, matching musclemimic's `disable_fingers=True` default) so nq = 89 matches the
   caches. The standing-pose pad for MSK models seeds from the model's first keyframe.
+- **`osl_fullbody` is the inverse of `myolegs`** — it has no cache of its own and is
+  driven directly by the **`MyoFullBody`** cache. It shares myofullbody's base/joint
+  convention, so the base pose is used as-is (no reorientation). The amputated right
+  leg's prosthesis hinges are driven from the source's biological right knee/ankle
+  (`knee_angle_r → osl_knee_angle_r`, `ankle_angle_r → osl_ankle_angle_r`); the other
+  right-leg DOFs (knee couplers, subtalar, mtp) are dropped and the `socket_*` DOFs stay
+  at 0. Fingers are disabled as in `myofullbody` (nq = 84). Pass a `MyoFullBody` clip
+  with `--model osl_fullbody`.
 - MSK XMLs bundle their own scene (floor/lights/cameras), so `--no-floor` is a no-op
   for them; viewers use their own pelvis-centered free camera and ignore scene cameras.
 
@@ -205,8 +221,9 @@ measurements, so the prosthetic foot may not sit fully flat. In `scrub` mode an
 **R-ankle** slider (keys `z` / `c` = ±1°) applies a global right-ankle offset; press
 `f` to print the current value alongside the frame/z marker. Bake the value you found
 into a clip with `crop_trajectory.py --ankle-offset <deg>` (adds it to the right-ankle
-joint of every frame). This is `osl_ka`-only (joint `osl_ankle_angle_r`): other models
-get no R-ankle slider and `--ankle-offset` errors on them.
+joint of every frame). This applies to the OSL-prosthesis models `osl_ka` and
+`osl_fullbody` (joint `osl_ankle_angle_r`): other models get no R-ankle slider and
+`--ankle-offset` errors on them.
 
 ## Assets
 
