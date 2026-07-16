@@ -5,7 +5,9 @@ View, edit, and convert reference trajectories from a variety of mocap sources
 into formats suitable for downstream motion-tracking repos.
 
 - **Supported Sources**: `LocoMujoCo DefaultDatasets` (`.npz`),
-  `Lafan1` (`.npz`), `bones_seed` (`.csv`), `unilab` (`.npz`), `mj_nlp` (qpos/time CSV folder).
+  `Lafan1` (`.npz`), `bones_seed` (`.csv`), `unilab` (`.npz`),
+  `mj_nlp` (qpos/time CSV folder), `mj_nlp_out` (mj-nlp task-output `.npz`),
+  `srb_kino` (headerless qpos CSV, xyzw quat).
 - **Supported Outputs**: `unilab` (motion NPZ for
   [`unitree_rl_mjlab`](../unitree_rl_mjlab)),
   `mj_nlp` (MuJoCo qpos + time CSV pair)
@@ -89,7 +91,7 @@ python scripts/visualize_trajectory.py \
 | flag | meaning |
 |---|---|
 | `--path` | path to reference trajectory (required) |
-| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
 | `--fps` | playback rate override; defaults to the source's own fps |
@@ -99,6 +101,18 @@ python scripts/visualize_trajectory.py \
 
 Any source can be played on either model — joints are matched by name, so e.g. a
 23-joint Lafan1 motion on `g1_29dof` simply leaves the extra waist/wrist DOFs at 0.
+
+The two mj-nlp sources are different: `mj_nlp` re-loads clipper's own qpos/time
+CSV-folder round-trip, while `mj_nlp_out` is a read-only import of an mj-nlp
+example task's native output `.npz` (e.g.
+`../mj-nlp/examples/g1_tracking_mpc/tracking_<motion>.npz`) — it loads the solved
+MPC rollout (the `state` array, ~100 fps) and has no matching writer.
+
+`srb_kino` reads the headerless per-frame qpos CSVs fed to `unitree_rl_mjlab`'s
+`scripts/csv_to_npz.py`. Same 36-column `base_pos + quat + 29-joint` shape as
+`mj_nlp`, but the quaternion is **xyzw** (scalar-last) — matching csv_to_npz's own
+`[:, [3, 0, 1, 2]]` reorder — and there is no `time.csv`, so the rate defaults to
+50 fps (override with `--fps`). Read-only; no matching writer.
 
 ### Scrub mode
 
@@ -140,7 +154,7 @@ python scripts/crop_trajectory.py \
 | flag | meaning |
 |---|---|
 | `--path` | path to reference trajectory (required) |
-| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |

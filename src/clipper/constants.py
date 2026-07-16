@@ -151,14 +151,21 @@ RIGHT_ANKLE_JOINT: dict[str, str] = {
 # DefaultDatasets and Lafan1 share the LocoMuJoCo-format npz loader; bones_seed
 # has its own CSV loader; `unilab` re-loads clipper's own unitree_rl_mjlab output
 # NPZ and `mj_nlp` re-loads its mj-nlp qpos/time CSV folder (so written clips can
-# be re-visualized / re-cropped). The natural target model for each source is
-# noted, but any source can be visualized on any model via the by-name qpos builder.
+# be re-visualized / re-cropped). `mj_nlp_out` is a read-only import of an mj-nlp
+# example task's own output `.npz` (the solved MPC rollout `state`) — distinct
+# from `mj_nlp`, which is clipper's CSV-folder round-trip. The natural target model
+# for each source is noted, but any source can be visualized on any model via the
+# by-name qpos builder.
 SOURCES: tuple[str, ...] = (
     "default_datasets",
     "lafan1",
     "bones_seed",
     "unilab",
     "mj_nlp",
+    "mj_nlp_out",
+    # headerless qpos CSV with xyzw (scalar-last) quaternion and no timing, as
+    # consumed by unitree_rl_mjlab's csv_to_npz (cf. `mj_nlp`: wxyz + time.csv).
+    "srb_kino",
     # musclemimic retargeted clips in ~/.musclemimic/caches (self-describing npz);
     # the matching round-trip writer re-emits this schema. See sources/musclemimic.py.
     "musclemimic",
@@ -168,6 +175,10 @@ SOURCES: tuple[str, ...] = (
 # verified from the dataset's seed metadata (move_duration_frames / temporal-label
 # event seconds clusters tightly at 120 across ~142k clips). Override via `--fps`.
 BONES_SEED_DEFAULT_FPS: float = 120.0
+
+# srb_kino qpos CSVs (fed to unitree_rl_mjlab's csv_to_npz) carry no frame rate;
+# the producer emits at 50 Hz. Override via `--fps`.
+SRB_KINO_DEFAULT_FPS: float = 50.0
 
 # musclemimic caches store `frequency` (100 Hz for the current AMASS retargets);
 # used only as a fallback if a file is missing it. Override via `--fps`.
