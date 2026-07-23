@@ -14,6 +14,7 @@ import mujoco.viewer
 
 from ..trajectory import Trajectory
 from .camera import center_on_pelvis
+from .markers import draw_markers
 
 
 def _default_render_flags_off(viewer: "mujoco.viewer.Handle") -> None:
@@ -88,6 +89,9 @@ def replay(
         while viewer.is_running():
             tic = time.perf_counter()
             set_pose(model, data, traj, k)
+            if traj.markers is not None:
+                viewer.user_scn.ngeom = 0
+                draw_markers(viewer.user_scn, traj.markers[k])
             viewer.sync()
             print(
                 f"  frame {k + 1:>6d}/{n} "

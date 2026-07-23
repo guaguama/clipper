@@ -8,9 +8,8 @@ Verified schema (see clipper memory `clipper-data-sources`):
 - The 29 joint columns are in `constants.G1_29DOF_JOINT_NAMES` order.
 
 Per-row conversion: pos = cm/100, quat = R.from_euler('xyz', deg).as_quat() ->
-wxyz, joints = deg2rad. A single floor offset (min body world-z over all frames)
-is then subtracted so the lowest point rests at z=0 while vertical motion is
-preserved.
+wxyz, joints = deg2rad. The raw mocap world-z is loaded verbatim (no grounding),
+so the trajectory reproduces the exact input height.
 """
 
 from __future__ import annotations
@@ -27,17 +26,6 @@ from ..trajectory import Trajectory
 
 SOURCE_JOINT_NAMES = constants.G1_29DOF_JOINT_NAMES  # source DOF column order
 N_COLS = 1 + 3 + 3 + len(SOURCE_JOINT_NAMES)  # frame + pos + rot + joints = 36
-
-
-def _floor_offset(model: mujoco.MjModel, qpos: np.ndarray) -> float:
-    """Lowest body world-z across all frames (so subtracting it grounds feet)."""
-    data = mujoco.MjData(model)
-    min_z = np.inf
-    for frame in qpos:
-        data.qpos[:] = frame
-        mujoco.mj_forward(model, data)
-        min_z = min(min_z, float(data.xpos[1:, 2].min()))  # skip world body 0
-    return min_z
 
 
 def load(
@@ -67,9 +55,6 @@ def load(
     }
 
     qpos = build_qpos(model, base_pos, base_quat_wxyz, joint_angles)
-
-    # Ground the motion: subtract the lowest body height over the whole clip.
-    qpos[:, 2] -= _floor_offset(model, qpos)
 
     if fps is None:
         fps = constants.BONES_SEED_DEFAULT_FPS

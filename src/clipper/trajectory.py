@@ -24,6 +24,10 @@ class Trajectory:
         model: Target model id, ``"g1_29dof"`` or ``"g1_23dof"``.
         source: Provenance source id (e.g. ``"lafan1"``, ``"bones_seed"``).
         name: Short name of the motion (typically the source file stem).
+        markers: Optional ``(N, K, 3)`` world-frame overlay points (e.g. the source
+            mocap skeleton a retarget tracked). Rendered as spheres in visualization
+            for inspection; ``None`` for sources that carry no overlay. Purely a
+            visual debug aid — output writers never read it.
     """
 
     qpos: np.ndarray
@@ -31,6 +35,7 @@ class Trajectory:
     model: str
     source: str
     name: str
+    markers: np.ndarray | None = None
 
     @property
     def num_frames(self) -> int:
@@ -45,3 +50,10 @@ class Trajectory:
         self.qpos = np.asarray(self.qpos, dtype=np.float64)
         if self.qpos.ndim != 2:
             raise ValueError(f"qpos must be (N, nq); got shape {self.qpos.shape}")
+        if self.markers is not None:
+            self.markers = np.asarray(self.markers, dtype=np.float64)
+            if self.markers.ndim != 3 or self.markers.shape[0] != self.qpos.shape[0]:
+                raise ValueError(
+                    f"markers must be (N, K, 3) aligned with qpos frames "
+                    f"(N={self.qpos.shape[0]}); got shape {self.markers.shape}"
+                )

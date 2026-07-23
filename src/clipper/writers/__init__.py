@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import mj_nlp, musclemimic, unilab
+from . import mj_nlp, musclemimic, sbto, unilab
 
 WRITERS: dict[str, Callable[..., object]] = {
     # `unilab` writes the unitree_rl_mjlab motion NPZ (file layout under
@@ -17,6 +17,8 @@ WRITERS: dict[str, Callable[..., object]] = {
     "mj_nlp": mj_nlp.write,
     # round-trip musclemimic cache npz (MSK models). See writers/musclemimic.py.
     "musclemimic": musclemimic.write,
+    # DynaRetarget/SBTO reference-motion npz (G1 models). See writers/sbto.py.
+    "sbto": sbto.write,
 }
 
 

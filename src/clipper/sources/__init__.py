@@ -10,7 +10,18 @@ from __future__ import annotations
 from typing import Callable
 
 from ..trajectory import Trajectory
-from . import bones_seed, locomujoco, mj_nlp, mj_nlp_out, musclemimic, srb_kino, unilab
+from . import (
+    bones_seed,
+    holosoma,
+    locomujoco,
+    mj_nlp,
+    mj_nlp_out,
+    musclemimic,
+    sbto,
+    sbto_out,
+    srb_kino,
+    unilab,
+)
 
 # DefaultDatasets and Lafan1 share the LocoMuJoCo npz format/loader.
 SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
@@ -27,6 +38,12 @@ SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
     "srb_kino": srb_kino.load,
     # musclemimic retargeted caches + clipper's round-trip output (self-describing).
     "musclemimic": musclemimic.load,
+    # holosoma retargeted npz (g1_29dof qpos + source skeleton overlay), read-only import.
+    "holosoma": holosoma.load,
+    # clipper's own sbto reference NPZ, re-loadable for viz/re-crop (round-trip).
+    "sbto": sbto.load,
+    # sbto solver output (best_trajectory.npz: optimized trajectory), read-only import.
+    "sbto_out": sbto_out.load,
 }
 
 

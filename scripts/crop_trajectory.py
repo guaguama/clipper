@@ -83,6 +83,7 @@ def _save_video(model_id: str, traj, path: Path) -> None:
         import mujoco
 
         from clipper.viz.camera import center_on_pelvis
+        from clipper.viz.markers import draw_markers
         from clipper.viz.replay import set_pose
     except Exception as exc:  # pragma: no cover - optional dep
         raise SystemExit(f"--save-video unavailable: {exc}")
@@ -107,6 +108,8 @@ def _save_video(model_id: str, traj, path: Path) -> None:
         set_pose(model, data, traj, k)
         center_on_pelvis(cam, traj.qpos[k], traj.model)
         renderer.update_scene(data, cam)
+        if traj.markers is not None:
+            draw_markers(renderer.scene, traj.markers[k])
         frames.append(renderer.render())
     renderer.close()
     path.parent.mkdir(parents=True, exist_ok=True)

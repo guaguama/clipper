@@ -32,6 +32,7 @@ from .. import constants
 from ..qpos import joint_qpos_address
 from ..trajectory import Trajectory
 from .camera import center_on_pelvis
+from .markers import draw_markers
 from .replay import _default_render_flags_off, set_pose
 
 
@@ -120,6 +121,9 @@ def scrub(
             joint_offsets = {ankle_adr: np.deg2rad(_clamp(ankle_slider.val, ankle_range))}
         set_pose(model, data, traj, f, z_offset=z, joint_offsets=joint_offsets)
         if viewer is not None:
+            if traj.markers is not None:
+                viewer.user_scn.ngeom = 0
+                draw_markers(viewer.user_scn, traj.markers[f] + np.array([0.0, 0.0, z]))
             try:
                 viewer.sync()
             except Exception:

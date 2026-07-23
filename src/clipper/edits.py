@@ -32,12 +32,14 @@ def crop(traj: Trajectory, start: int | None = None, stop: int | None = None) ->
             f"crop range [{start}, {stop}] invalid for {n} frames "
             f"(need 0 <= start <= stop <= {n - 1})."
         )
+    markers = None if traj.markers is None else traj.markers[start : stop + 1].copy()
     return Trajectory(
         qpos=traj.qpos[start : stop + 1].copy(),
         fps=traj.fps,
         model=traj.model,
         source=traj.source,
         name=f"{traj.name}_crop{start}-{stop}",
+        markers=markers,
     )
 
 
@@ -45,9 +47,14 @@ def apply_height_offset(traj: Trajectory, dz: float) -> Trajectory:
     """Add `dz` (meters) to the base z of every frame (matches set_pose z_offset)."""
     q = traj.qpos.copy()
     q[:, 2] += float(dz)
+    markers = None
+    if traj.markers is not None:
+        markers = traj.markers.copy()
+        markers[..., 2] += float(dz)  # keep the overlay aligned with the shifted base
     name = traj.name if dz == 0.0 else f"{traj.name}_z{dz:+g}"
     return Trajectory(
-        qpos=q, fps=traj.fps, model=traj.model, source=traj.source, name=name
+        qpos=q, fps=traj.fps, model=traj.model, source=traj.source, name=name,
+        markers=markers,
     )
 
 
@@ -78,6 +85,7 @@ def apply_ankle_offset(traj: Trajectory, ankle_adr: int, offset_deg: float) -> T
         model=traj.model,
         source=traj.source,
         name=f"{traj.name}_ankle{offset_deg:+g}",
+        markers=traj.markers,
     )
 
 
@@ -145,6 +153,8 @@ def pad_standing(
     if n_post_s:
         segments.append(np.broadcast_to(stand_back, (n_post_s, q.shape[1])).copy())
 
+    # markers left None: padded standing frames have no source skeleton, so any
+    # overlay is dropped once a clip is padded (a preview-only concern).
     return Trajectory(
         qpos=np.concatenate(segments, axis=0),
         fps=fps,

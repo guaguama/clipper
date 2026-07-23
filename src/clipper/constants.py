@@ -169,6 +169,15 @@ SOURCES: tuple[str, ...] = (
     # musclemimic retargeted clips in ~/.musclemimic/caches (self-describing npz);
     # the matching round-trip writer re-emits this schema. See sources/musclemimic.py.
     "musclemimic",
+    # holosoma retargeted npz: qpos already in g1_29dof layout (wxyz, m, rad) plus the
+    # source SMPL skeleton (`human_joints`) shown as a viz overlay. See sources/holosoma.py.
+    "holosoma",
+    # clipper's own sbto reference NPZ (round-trip of `--format sbto`); reverses the
+    # writer's [quat,pos] base flip. See sources/sbto.py.
+    "sbto",
+    # sbto solver output (`best_trajectory.npz`: optimized/refined trajectory),
+    # read-only import (cf. `sbto`: the reference input). See sources/sbto_out.py.
+    "sbto_out",
 )
 
 # bones_seed CSVs carry no frame rate, but the source capture rate is 120 Hz —
@@ -183,6 +192,10 @@ SRB_KINO_DEFAULT_FPS: float = 50.0
 # musclemimic caches store `frequency` (100 Hz for the current AMASS retargets);
 # used only as a fallback if a file is missing it. Override via `--fps`.
 MUSCLEMIMIC_DEFAULT_FPS: float = 100.0
+
+# holosoma npz store `fps` (30 Hz, hardcoded by its retargeter); used only as a
+# fallback if a file is missing it. Override via `--fps`.
+HOLOSOMA_DEFAULT_FPS: float = 30.0
 
 # --------------------------------------------------------------------------- #
 # MSK joint remap: the myo_sim `myolegs` model has no retargeted trajectories of

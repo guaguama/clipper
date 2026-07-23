@@ -7,10 +7,14 @@ into formats suitable for downstream motion-tracking repos.
 - **Supported Sources**: `LocoMujoCo DefaultDatasets` (`.npz`),
   `Lafan1` (`.npz`), `bones_seed` (`.csv`), `unilab` (`.npz`),
   `mj_nlp` (qpos/time CSV folder), `mj_nlp_out` (mj-nlp task-output `.npz`),
-  `srb_kino` (headerless qpos CSV, xyzw quat).
+  `srb_kino` (headerless qpos CSV, xyzw quat),
+  `holosoma` (retargeted `.npz`, g1_29dof + source skeleton overlay),
+  `sbto` (clipper's own sbto reference `.npz`), `sbto_out` (sbto solver output
+  `best_trajectory.npz`).
 - **Supported Outputs**: `unilab` (motion NPZ for
   [`unitree_rl_mjlab`](../unitree_rl_mjlab)),
-  `mj_nlp` (MuJoCo qpos + time CSV pair)
+  `mj_nlp` (MuJoCo qpos + time CSV pair),
+  `sbto` (DynaRetarget/[`sbto`](../sbto) reference-motion NPZ; G1 models)
 
 **Entry points** (`scripts/`):
 
@@ -79,19 +83,25 @@ python scripts/visualize_trajectory.py \
 python scripts/visualize_trajectory.py \
     --path ~/.g1mocap/Lafan1/dance1_subject2.npz --source lafan1 --model g1_23dof
 
-# bones_seed CSV -> 29-DOF G1 (cm->m, deg->rad, auto-grounded; plays at 120 Hz)
+# bones_seed CSV -> 29-DOF G1 (cm->m, deg->rad, raw height; plays at 120 Hz)
 python scripts/visualize_trajectory.py \
     --path <bones_seed.csv> --source bones_seed --model g1_29dof
 
 # unitree_rl_mjlab format
 python scripts/visualize_trajectory.py \
     --path outputs/unitree_rl_mjlab/g1_29dof/<clip>.npz --source unilab --model g1_29dof
+
+# holosoma retargeted npz -> 29-DOF G1 (qpos is already g1_29dof-native; the source
+# SMPL skeleton is overlaid as spheres for retarget inspection; plays at 30 Hz)
+python scripts/visualize_trajectory.py \
+    --path ~/soma_rt/retargeted/flip_360_hero_landing_003__A304.npz \
+    --source holosoma --model g1_29dof
 ```
 
 | flag | meaning |
 |---|---|
 | `--path` | path to reference trajectory (required) |
-| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` \| `holosoma` \| `sbto` \| `sbto_out` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
 | `--fps` | playback rate override; defaults to the source's own fps |
@@ -114,6 +124,24 @@ MPC rollout (the `state` array, ~100 fps) and has no matching writer.
 `[:, [3, 0, 1, 2]]` reorder — and there is no `time.csv`, so the rate defaults to
 50 fps (override with `--fps`). Read-only; no matching writer.
 
+`holosoma` reads the retargeted `.npz` produced by [`holosoma`](../holosoma). Its
+`qpos (T, 36)` is already in the `g1_29dof` layout (`base_pos + wxyz quat + 29 joints`,
+meters/radians — no conversion, reorder, or grounding), so pass `--model g1_29dof`
+(or `g1_23dof`, which drops the waist roll/pitch + wrist DOFs by name). `fps` is read
+from the file (30 Hz; override with `--fps`). The clip also carries `human_joints`
+`(T, 22, 3)` — the source SMPL body skeleton — which is overlaid as orange spheres in
+both replay and scrub so you can eyeball retarget quality. Read-only; cropped clips
+are written through the g1-native writers (`--format unilab` / `--format mj_nlp`).
+
+Like the mj-nlp pair, the two sbto sources are different: `sbto` re-loads clipper's
+own `--format sbto` reference `.npz` (`outputs/sbto/<model>/<clip>.npz`), reversing
+the writer's OmniRetarget `[quat, pos]` base flip back to canonical `[pos, quat]` —
+use it to inspect the converted/cropped clips fed into sbto. `sbto_out` is a
+read-only import of the [`sbto`](../sbto) solver's own output
+(`<run_dir>/best_trajectory.npz`, or pass the run directory directly) — the
+optimized, dynamically-feasible trajectory (`root_pos/root_rot/dof_pos`, ~100 fps
+from its `time` array), for viewing the refinement result.
+
 ### Scrub mode
 
 `--mode scrub` opens the MuJoCo viewer plus a small slider window for scrubbing 
@@ -135,7 +163,8 @@ Close either window to quit.
 
 `crop_trajectory.py` runs **load → crop → height-offset → (optional) standing pad →
 write**, producing a downstream motion file under `outputs/` (e.g.
-`outputs/unitree_rl_mjlab/<model>/` for `unilab`, `outputs/mj_nlp/<model>/` for `mj_nlp`). The standing
+`outputs/unitree_rl_mjlab/<model>/` for `unilab`, `outputs/mj_nlp/<model>/` for `mj_nlp`,
+`outputs/sbto/<model>/` for `sbto`). The standing
 pose pad prepends and appends a standing pose to the trajectory. Examples:
 
 ```bash
@@ -149,19 +178,32 @@ python scripts/crop_trajectory.py \
 python scripts/crop_trajectory.py \
     --path <bones_seed.csv> --source bones_seed --model g1_29dof --format unilab \
     --start 50 --stop 200 --height-offset 0.03 --pad-standing --output-fps 50 --visualize
+
+# Crop a holosoma clip -> unitree_rl_mjlab NPZ (holosoma targets g1_29dof)
+python scripts/crop_trajectory.py \
+    --path ~/soma_rt/retargeted/flip_360_hero_landing_003__A304.npz \
+    --source holosoma --model g1_29dof --start 100 --stop 300 --format unilab
+
+# Crop a clip -> DynaRetarget/sbto reference NPZ (g1_29dof; g1_23dof is remapped
+# into the 29-DOF layout). Load in sbto with default flags:
+#   python3 sbto/main.py task=g1/robot_ref task.cfg_ref.motion_path=<npz>
+python scripts/crop_trajectory.py \
+    --path <bones_seed.csv> --source bones_seed --model g1_29dof \
+    --start 100 --stop 300 --format sbto
+# -> outputs/sbto/g1_29dof/<clip>_crop100-300.npz
 ```
 
 | flag | meaning |
 |---|---|
 | `--path` | path to reference trajectory (required) |
-| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` (required) |
+| `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` \| `holosoma` \| `sbto` \| `sbto_out` (required) |
 | `--model` | `g1_29dof` \| `g1_23dof` (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |
 | `--pad-standing` | add a standing pose + blended transition at each end (off by default) |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); defaults 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp) to this rate; default keeps the source fps |
-| `--format` | output format (`unilab` \| `mj_nlp`) (required) |
+| `--format` | output format (`unilab` \| `mj_nlp` \| `sbto`) (required) |
 | `--name` | output file stem (default derived from the source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 
