@@ -40,7 +40,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Source format (no autodetection).",
     )
     p.add_argument(
-        "--model", required=True, choices=constants.MODELS, help="Target G1 model.",
+        "--model", required=True, choices=constants.MODELS, help="Target model.",
     )
     p.add_argument("--start", type=int, default=None, help="First frame (0-based, inclusive).")
     p.add_argument("--stop", type=int, default=None, help="Last frame (0-based, inclusive).")

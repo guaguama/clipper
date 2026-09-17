@@ -4,14 +4,20 @@ The downstream ``../mj-nlp`` repo plays reference clips from a per-trajectory
 folder holding two plain MuJoCo-standard CSVs (see ``mj-nlp/trajectories/playback.py``):
 
 * ``qpos_<dof>dof.csv`` ``(N, nq)`` — one full qpos row per frame, no header:
-  ``base_pos(3) + base_quat(4, wxyz) + joints`` in the ``g1_<dof>dof`` model order;
+  ``base_pos(3) + base_quat(4, wxyz) + joints`` in the target model's own order;
 * ``time.csv`` ``(N,)`` — absolute time stamp (s) for each qpos row.
 
-clipper's ``Trajectory.qpos`` is already in the target model's qpos layout, and
-the G1 model qpos ordering is identical between clipper and mj-nlp (verified:
-same joint order/types, only a ``robot/`` namespace prefix differs), so the qpos
-array is written out directly with no re-ordering. The base quaternion is already
+clipper's ``Trajectory.qpos`` is already in the target model's qpos layout, and the
+qpos ordering is identical between clipper and mj-nlp for every shared model, so the
+array is written out directly with no re-ordering. Verified for the G1 (same joint
+order/types, only a ``robot/`` namespace prefix differs) and for ``osl_fullbody_robot``
+(mj-nlp ships the same XML under ``models/osl/``). The base quaternion is already
 MuJoCo wxyz, matching playback's assumption.
+
+``dof`` comes from ``model.joint_names`` rather than the G1-only
+``constants.JOINT_NAMES``, so this writer serves the MSK models too — e.g.
+``osl_fullbody_robot`` emits the ``qpos_77dof.csv`` that mj-nlp's ``examples/osl_walk``
+expects under ``trajectories/osl/<group>/<clip>/``.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import constants, mathx
+from ..model import joint_names
 from ..trajectory import Trajectory
 
 
@@ -44,7 +51,7 @@ def write(
         overwrite: If False, raise when the target CSVs already exist.
     """
     model_id = traj.model
-    dof = len(constants.JOINT_NAMES[model_id])
+    dof = len(joint_names(model_id))
 
     qpos = traj.qpos
     if qpos.shape[1] != 7 + dof:

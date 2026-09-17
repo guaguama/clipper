@@ -32,6 +32,13 @@ from ..trajectory import Trajectory
 # Robot bodies = all compiled bodies minus the world body (index 0).
 N_BODIES = 30
 
+# Models this writer can accept. unitree_rl_mjlab's motion NPZ is a G1 artifact
+# throughout: the joint order comes from the G1-only `constants.JOINT_NAMES`, the body
+# block is resolved from the G1-only `constants.SCENE_XML`, and `N_BODIES` above is the
+# G1 body count. Not something to generalize — MSK models use `--format musclemimic`
+# (round-trip cache NPZ) or `--format mj_nlp` (qpos/time CSV pair) instead.
+_SUPPORTED_MODELS = ("g1_29dof", "g1_23dof")
+
 
 def _so3_derivative(quats: np.ndarray, dt: float) -> np.ndarray:
     """Angular velocity (world) from a quaternion sequence; shape (T, ..., 3).
@@ -64,6 +71,12 @@ def write(
         overwrite: If False, raise when the target file already exists.
     """
     model_id = traj.model
+    if model_id not in _SUPPORTED_MODELS:
+        raise ValueError(
+            f"unilab writer only supports G1 models {_SUPPORTED_MODELS} "
+            f"(the unitree_rl_mjlab motion NPZ is G1-specific); got {model_id!r}. "
+            f"Use --format musclemimic or --format mj_nlp for MSK models."
+        )
     joint_names = constants.JOINT_NAMES[model_id]
     dof = len(joint_names)
 

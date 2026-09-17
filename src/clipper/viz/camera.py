@@ -26,7 +26,7 @@ CameraView = namedtuple("CameraView", "azimuth elevation distance")
 # ``visual.global_`` angles and 1.5 x the 0.8 ``stat.extent``); unchanged.
 G1_VIEW = CameraView(azimuth=140.0, elevation=-20.0, distance=2.0)
 
-# MSK models (osl_ka / myofullbody / myolegs). Tuned separately — adjust these
+# MSK models (every id in `constants.MSK_MODELS`). Tuned separately — adjust these
 # three numbers to taste. The G1 preset framed the MSK models from behind and a
 # touch too close, so this faces the front (azimuth flipped ~180°) and pulls back.
 MSK_VIEW = CameraView(azimuth=-40.0, elevation=-20.0, distance=3.0)

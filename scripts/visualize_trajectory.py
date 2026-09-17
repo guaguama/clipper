@@ -37,7 +37,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--model",
         required=True,
         choices=constants.MODELS,
-        help="Target G1 model.",
+        help="Target model.",
     )
     p.add_argument(
         "--mode",

@@ -13,3 +13,11 @@ dist/
 .venv/
 .ipynb_checkpoints/
 uv.lock
+
+# Agent instructions + memory (shared across agents; local to each working tree)
+/AGENTS.md
+/CLAUDE.md
+/.memory/
+
+# Local Claude Code settings (permissions + memory-sync hooks)
+/.claude/settings.local.json

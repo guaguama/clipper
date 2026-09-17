@@ -12,9 +12,10 @@ into formats suitable for downstream motion-tracking repos.
   `sbto` (clipper's own sbto reference `.npz`), `sbto_out` (sbto solver output
   `best_trajectory.npz`).
 - **Supported Outputs**: `unilab` (motion NPZ for
-  [`unitree_rl_mjlab`](../unitree_rl_mjlab)),
-  `mj_nlp` (MuJoCo qpos + time CSV pair),
-  `sbto` (DynaRetarget/[`sbto`](../sbto) reference-motion NPZ; G1 models)
+  [`unitree_rl_mjlab`](../unitree_rl_mjlab); G1 models),
+  `mj_nlp` (MuJoCo qpos + time CSV pair; any model),
+  `sbto` (DynaRetarget/[`sbto`](../sbto) reference-motion NPZ; G1 models),
+  `musclemimic` (round-trip cache NPZ; MSK models)
 
 **Entry points** (`scripts/`):
 
@@ -102,7 +103,7 @@ python scripts/visualize_trajectory.py \
 |---|---|
 | `--path` | path to reference trajectory (required) |
 | `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` \| `holosoma` \| `sbto` \| `sbto_out` (required) |
-| `--model` | `g1_29dof` \| `g1_23dof` (required) |
+| `--model` | `g1_29dof` \| `g1_23dof`, or an MSK model (`osl_ka` \| `myofullbody` \| `myolegs` \| `osl_fullbody` \| `osl_fullbody_robot` \| `new_osl_fullbody`) (required) |
 | `--mode` | `replay` (default) \| `scrub` (interactive slider + keyboard control) |
 | `--fps` | playback rate override; defaults to the source's own fps |
 | `--speed` | real-time multiplier (e.g. `2` = 2×) |
@@ -115,8 +116,10 @@ Any source can be played on either model — joints are matched by name, so e.g.
 The two mj-nlp sources are different: `mj_nlp` re-loads clipper's own qpos/time
 CSV-folder round-trip, while `mj_nlp_out` is a read-only import of an mj-nlp
 example task's native output `.npz` (e.g.
-`../mj-nlp/examples/g1_tracking_mpc/tracking_<motion>.npz`) — it loads the solved
-MPC rollout (the `state` array, ~100 fps) and has no matching writer.
+`../mj-nlp/examples/g1_tracking_mpc/tracking_<motion>.npz`, or an `osl_walk` gait
+solve) — it loads the solved rollout (the `state` array, ~100 fps) and has no matching
+writer. Both mj-nlp sources are model-generic, so an `osl_fullbody_robot` solve comes
+back as readily as a G1 one.
 
 `srb_kino` reads the headerless per-frame qpos CSVs fed to `unitree_rl_mjlab`'s
 `scripts/csv_to_npz.py`. Same 36-column `base_pos + quat + 29-joint` shape as
@@ -164,7 +167,7 @@ Close either window to quit.
 `crop_trajectory.py` runs **load → crop → height-offset → (optional) standing pad →
 write**, producing a downstream motion file under `outputs/` (e.g.
 `outputs/unitree_rl_mjlab/<model>/` for `unilab`, `outputs/mj_nlp/<model>/` for `mj_nlp`,
-`outputs/sbto/<model>/` for `sbto`). The standing
+`outputs/sbto/<model>/` for `sbto`, `outputs/musclemimic/<model>/` for `musclemimic`). The standing
 pose pad prepends and appends a standing pose to the trajectory. Examples:
 
 ```bash
@@ -197,19 +200,19 @@ python scripts/crop_trajectory.py \
 |---|---|
 | `--path` | path to reference trajectory (required) |
 | `--source` | `default_datasets` \| `lafan1` \| `bones_seed` \| `unilab` \| `mj_nlp` \| `mj_nlp_out` \| `srb_kino` \| `holosoma` \| `sbto` \| `sbto_out` (required) |
-| `--model` | `g1_29dof` \| `g1_23dof` (required) |
+| `--model` | `g1_29dof` \| `g1_23dof`, or an MSK model (`osl_ka` \| `myofullbody` \| `myolegs` \| `osl_fullbody` \| `osl_fullbody_robot` \| `new_osl_fullbody`) (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |
 | `--pad-standing` | add a standing pose + blended transition at each end (off by default) |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); defaults 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp) to this rate; default keeps the source fps |
-| `--format` | output format (`unilab` \| `mj_nlp` \| `sbto`) (required) |
+| `--format` | output format (`unilab` \| `mj_nlp` \| `sbto` \| `musclemimic`) (required). `unilab`/`sbto` are G1-only; `musclemimic` is MSK-only; `mj_nlp` serves both |
 | `--name` | output file stem (default derived from the source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 
 ## Musculoskeletal (MSK) models
 
-In addition to the Unitree G1, clipper supports four musculoskeletal models from
+In addition to the Unitree G1, clipper supports five musculoskeletal models from
 [`musclemimic`](../../01_projpegleg/musclemimic) and
 [`myo_sim`](../../01_projpegleg/myo_sim), vendored under `assets/msk/`:
 
@@ -219,6 +222,8 @@ In addition to the Unitree G1, clipper supports four musculoskeletal models from
 | `myofullbody` | full-body MyoSkeleton (fingers disabled) | 89 | free | musclemimic |
 | `myolegs` | MyoLegs (biological, myo_sim) | 35 | free | myo_sim |
 | `osl_fullbody` | full-body MyoSkeleton with right-leg OSL prosthetic (fingers disabled) | 84 | free | clipper (myofullbody + OSL graft) |
+| `osl_fullbody_robot` | `osl_fullbody` with the muscles replaced by joint actuators | 84 | free | mj-nlp |
+| `new_osl_fullbody` | official full-body + OSL knee-ankle export (fingers disabled) | 80 | free | myoassist / `assist_sim` |
 
 These use a single new source/output format, **`musclemimic`**, for the retargeted
 clips in `~/.musclemimic/caches/AMASS/<Model>/` — self-describing LocoMuJoCo-style
@@ -244,6 +249,12 @@ python scripts/crop_trajectory.py \
     --path ~/.musclemimic/caches/AMASS/MyoFullBody/<clip>.npz \
     --source musclemimic --model osl_fullbody --ankle-offset 5 --format musclemimic
 # -> outputs/musclemimic/osl_fullbody/<clip>_..._ankle+5.npz
+
+# Same, on the official upstream export (note the OSL_KA_L1_ joint namespace)
+python scripts/crop_trajectory.py \
+    --path ~/.musclemimic/caches/AMASS/MyoFullBody/<clip>.npz \
+    --source musclemimic --model new_osl_fullbody --ankle-offset -5 --format musclemimic
+# -> outputs/musclemimic/new_osl_fullbody/<clip>_..._ankle-5.npz
 ```
 
 Add `musclemimic` to the `--source` choices (visualize + crop) and to the `--format`
@@ -269,6 +280,34 @@ re-loadable by clipper and consumable by musclemimic.
   right-leg DOFs (knee couplers, subtalar, mtp) are dropped and the `socket_*` DOFs stay
   at 0. Fingers are disabled as in `myofullbody` (nq = 84). Pass a `MyoFullBody` clip
   with `--model osl_fullbody`.
+- **`new_osl_fullbody` is the *official* upstream model, not a revision of
+  `osl_fullbody`.** It is the NeuMoVe Lab `myoassist` export (`assist_sim combine
+  myofullbody OpenSourceLeg_KA_L1`), vendored self-contained under
+  `assets/msk/new_osl_fullbody/` (see that folder's README for provenance). It is
+  additive — `osl_fullbody` is untouched — and the two are genuinely different models:
+  rigidly welded socket (no `socket_*` DOFs), lighter residual femur, 11 retained
+  residual-limb muscles, detailed OSL component inertias, and a **31.5 mm shorter
+  knee-to-ankle length**, so the whole prosthetic foot assembly rides ~2 cm higher than
+  on `osl_fullbody` for the same clip. Note that neither `--height-offset` (a rigid
+  shift of the *whole* body, both feet together) nor `--ankle-offset` (a rotation of the
+  foot about the ankle hinge) can compensate a limb-length change — that would need the
+  right hip/knee angles, i.e. re-retargeting against this model. In practice the shorter
+  shank *helps*: because the prosthesis is driven from biological right-leg angles with
+  nothing enforcing contact, the OSL sole passes through the floor on a raw clip, and it
+  does so ~2.1 cm less deeply here than on `osl_fullbody` (measured min sole z −0.066 vs
+  −0.087 m on `MyoFullBody/gmr/KIT/317/walking_medium04_poses`; the biological left sole
+  is −0.053 m on both).
+  Both are MyoFullBody-based, so it is driven by the same **`MyoFullBody`** cache as
+  `osl_fullbody`, with three renames the export needs: the OSL joints/bodies carry an
+  `OSL_KA_L1_` prefix (`knee_angle_r → OSL_KA_L1_osl_knee_angle_r`, likewise the ankle)
+  and both elbows are `elbow_flexion_*` rather than myo_sim's `elbow_flex_*` — that last
+  one is not cosmetic, without it the arms stay straight. The same 9 amputated-leg DOFs
+  drop as for `osl_fullbody`; nothing else is left unmapped. Fingers are disabled as
+  elsewhere (nq = 80). Unlike the other MSK models it ships **5 real keyframes**
+  (`stand`, `walk_left`, `walk_right`, `squat`, `lunge`), so `--pad-standing` seeds from
+  a genuine standing pose rather than the all-zeros implicit one; deleting joints from a
+  spec that has keyframes requires trimming their qpos, which `model._remove_joints`
+  now does. `musclemimic` in and out; no mj-nlp handoff.
 - MSK XMLs bundle their own scene (floor/lights/cameras), so `--no-floor` is a no-op
   for them; viewers use their own pelvis-centered free camera and ignore scene cameras.
 
@@ -277,9 +316,56 @@ measurements, so the prosthetic foot may not sit fully flat. In `scrub` mode an
 **R-ankle** slider (keys `z` / `c` = ±1°) applies a global right-ankle offset; press
 `f` to print the current value alongside the frame/z marker. Bake the value you found
 into a clip with `crop_trajectory.py --ankle-offset <deg>` (adds it to the right-ankle
-joint of every frame). This applies to the OSL-prosthesis models `osl_ka` and
-`osl_fullbody` (joint `osl_ankle_angle_r`): other models get no R-ankle slider and
-`--ankle-offset` errors on them.
+joint of every frame). This applies to the OSL-prosthesis models `osl_ka`,
+`osl_fullbody`, `osl_fullbody_robot` (joint `osl_ankle_angle_r`) and
+`new_osl_fullbody` (joint `OSL_KA_L1_osl_ankle_angle_r`): other models get
+no R-ankle slider and `--ankle-offset` errors on them.
+
+### `osl_fullbody_robot` and the mj-nlp handoff
+
+`osl_fullbody_robot` is `osl_fullbody` with the 390 muscles swapped for 27 joint
+position servos (the 2 OSL torque motors are shared). Its **kinematics are identical** —
+same joint names, types, and qpos addresses; same 104 bodies, 1926 sites, and keyframe;
+nq = 84 — so every trajectory is interchangeable between the two and the choice of model
+is purely visual. Only `ctrl` differs, which clipper never writes. Its XML ships with the
+finger joints already stripped (`assets/msk/osl_fullbody/body/osl_fullbody_robot.xml`,
+flattened, sharing `osl_fullbody`'s meshes); `../mj-nlp` carries the same model at
+`models/osl/osl_fullbody_robot.xml`.
+
+It is nonetheless a **separate model for input and output**: clips written for it land in
+`outputs/<format>/osl_fullbody_robot/`, never mixed with `osl_fullbody`'s. Note that the
+robot XML rounds its geometry attributes to ~7 significant digits, so a `musclemimic` NPZ
+written from it has bit-identical `qpos`/`qvel` but FK blocks (`xpos`, `cvel`,
+`site_xpos`, …) about 5e-7 from `osl_fullbody`'s — sub-micron, and harmless.
+
+`--format mj_nlp` is the reason the model exists. It writes
+`outputs/mj_nlp/osl_fullbody_robot/<clip>/{qpos_77dof.csv, time.csv}`, which is exactly
+what mj-nlp's `examples/osl_walk` expects under `trajectories/osl/<group>/<clip>/`:
+
+```bash
+# Crop one gait cycle and write it for mj-nlp
+python scripts/crop_trajectory.py \
+    --path ~/.musclemimic/caches/AMASS/MyoFullBody/<clip>.npz \
+    --source musclemimic --model osl_fullbody_robot --start 30 --stop 200 \
+    --output-fps 50 --format mj_nlp
+# -> outputs/mj_nlp/osl_fullbody_robot/<clip>_crop30-200/{qpos_77dof.csv, time.csv}
+
+cp -r outputs/mj_nlp/osl_fullbody_robot/<clip>_crop30-200 \
+      ../mj-nlp/trajectories/osl/level/
+```
+
+`--source mj_nlp` reads that folder back for re-viewing or re-cropping, and
+`--source mj_nlp_out` imports the solver's own output `.npz` (its `state` array) so a
+solved gait can be inspected in clipper:
+
+```bash
+python scripts/visualize_trajectory.py \
+    --path ../mj-nlp/examples/osl_walk/osl_walk_walk_fwd.npz \
+    --source mj_nlp_out --model osl_fullbody_robot --mode scrub
+```
+
+Note that mj-nlp's own `trajectories/replay.py` is hardcoded to the G1 models
+(`--dof {23,29}`), so it will not preview an osl clip — use clipper's viewer for that.
 
 ## Assets
 

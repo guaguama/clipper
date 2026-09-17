@@ -17,9 +17,18 @@ Only ``state`` is loaded (the solved rollout), not ``reference`` (the tracking
 ghost). ``qvel`` is dropped: clipper's `Trajectory` stores qpos only and writers
 derive velocities lazily.
 
-The qpos columns are in the mj-nlp g1_29dof model order, identical to clipper's
-``constants.G1_29DOF_JOINT_NAMES``, so they map onto the requested ``--model`` by
+The qpos columns are in the solving model's own order, which is identical to
+clipper's for every shared model (the G1s, and ``osl_fullbody_robot`` — mj-nlp ships
+that same XML under ``models/osl/``), so they map onto the requested ``--model`` by
 joint name via `build_qpos` (a 29-DOF clip can be viewed on g1_23dof and back).
+
+Which joint order a file is in is inferred from its width, and — as in the ``mj_nlp``
+source — **the target model's own nq is tried first**, because widths collide across
+model families: ``osl_ka`` and ``g1_23dof`` are both nq 30. Consulting the G1 table
+first would map an MSK rollout onto G1 joint names, none of which match, so
+`build_qpos` would drop every column and silently yield an all-zero-joint clip. The G1
+table applies only when the width is *not* the target model's own, which is what serves
+the cross-dof case (a 29-DOF rollout viewed on g1_23dof).
 """
 
 from __future__ import annotations
@@ -30,10 +39,12 @@ import mujoco
 import numpy as np
 
 from .. import constants
+from ..model import joint_names
 from ..qpos import build_qpos
 from ..trajectory import Trajectory
 
-# qpos width (nq) -> source joint column order. Same mapping as `mj_nlp.py`.
+# qpos width (nq) -> source joint column order, for the cross-dof G1 case only.
+# Same mapping (and same lookup order) as `mj_nlp.py`.
 _JOINT_NAMES_BY_NQ: dict[int, tuple[str, ...]] = {
     7 + len(constants.G1_23DOF_JOINT_NAMES): constants.G1_23DOF_JOINT_NAMES,
     7 + len(constants.G1_29DOF_JOINT_NAMES): constants.G1_29DOF_JOINT_NAMES,
@@ -79,11 +90,20 @@ def load(
             f"{path.name}: state width {width} is not a valid nq+nv for a "
             f"free-base model (expected 2*nq-1)."
         )
-    source_joint_names = _JOINT_NAMES_BY_NQ.get(nq)
+    # The target model's own layout wins (see the module docstring): an identity
+    # read, and the only correct reading when a width is ambiguous across models.
+    if nq == model.nq:
+        source_joint_names = joint_names(model_id)
+    else:
+        source_joint_names = _JOINT_NAMES_BY_NQ.get(nq)
     if source_joint_names is None:
+        # The npz records the XML the solve ran on; naming it turns a width mismatch
+        # into an obvious "wrong --model" diagnosis.
+        solved_on = str(data["model"]) if "model" in data else "unknown"
         raise ValueError(
             f"{path.name}: qpos width {nq} (from state width {width}); expected "
-            f"one of {sorted(_JOINT_NAMES_BY_NQ)}."
+            f"{model.nq} for {model_id!r}, or one of {sorted(_JOINT_NAMES_BY_NQ)} "
+            f"for a cross-model G1 rollout. The npz was solved on {solved_on!r}."
         )
 
     qpos_raw = state[:, :nq]

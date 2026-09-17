@@ -14,10 +14,23 @@ hidden in the viewer by default. The ``floor`` argument is a no-op for MSK model
 
 from __future__ import annotations
 
+import functools
+
 import mujoco
 import numpy as np
 
 from . import constants
+
+
+# qpos width per joint type, for deriving qpos addresses straight from an uncompiled
+# spec (``spec.joints`` is in qpos order — verified exact against ``jnt_qposadr`` for
+# every MSK model). Avoids a throwaway compile, which is slow for these models.
+_JNT_NQ: dict[int, int] = {
+    mujoco.mjtJoint.mjJNT_FREE: 7,
+    mujoco.mjtJoint.mjJNT_BALL: 4,
+    mujoco.mjtJoint.mjJNT_SLIDE: 1,
+    mujoco.mjtJoint.mjJNT_HINGE: 1,
+}
 
 
 def _remove_joints(spec: "mujoco.MjSpec", joint_names: tuple[str, ...]) -> None:
@@ -25,9 +38,35 @@ def _remove_joints(spec: "mujoco.MjSpec", joint_names: tuple[str, ...]) -> None:
 
     Joints absent from the spec are ignored. Bodies are left intact (they weld to
     their parent), so body indexing matches musclemimic's cached models.
+
+    Any ``<key>`` in the spec is declared against the *pre-deletion* nq, so its qpos
+    is trimmed to the surviving columns first — otherwise the compile fails with
+    ``keyframe 'stand': invalid qpos size``. Only ``new_osl_fullbody`` currently ships
+    real keyframes (5 of them, qpos-only); the hand-built models carry none in the
+    spec, so this is a no-op for them.
     """
     drop = set(joint_names)
-    for joint in [j for j in spec.joints if j.name in drop]:
+    victims = [j for j in spec.joints if j.name in drop]
+    if not victims:
+        return
+
+    if spec.keys:
+        adr: dict[str, int] = {}
+        nq = 0
+        for joint in spec.joints:
+            adr[joint.name] = nq
+            nq += _JNT_NQ[joint.type]
+        gone = {
+            a
+            for j in victims
+            for a in range(adr[j.name], adr[j.name] + _JNT_NQ[j.type])
+        }
+        keep = [i for i in range(nq) if i not in gone]
+        for key in spec.keys:
+            if len(key.qpos) == nq:  # leave anything already sized differently alone
+                key.qpos = np.asarray(key.qpos)[keep].tolist()
+
+    for joint in victims:
         spec.delete(joint)
 
 
@@ -58,8 +97,8 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
     """Compile and return the MuJoCo model for `model_id`.
 
     Args:
-        model_id: a G1 id (``"g1_29dof"``/``"g1_23dof"``) or an MSK id
-            (``"osl_ka"``/``"myofullbody"``/``"myolegs"``).
+        model_id: a G1 id (``"g1_29dof"``/``"g1_23dof"``) or any MSK id in
+            ``constants.MSK_MODELS``.
         floor: If True, add a ground-plane geom and a light to the world. Ignored
             for MSK models (their bundled scene already provides one).
 
@@ -134,6 +173,42 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
     floor_geom.material = "groundplane"
 
     return spec.compile()
+
+
+@functools.lru_cache(maxsize=None)
+def joint_names(model_id: str) -> tuple[str, ...]:
+    """Return `model_id`'s non-base joint names in qpos order.
+
+    This is the model-generic counterpart of ``constants.JOINT_NAMES``, which covers
+    only the G1 robots. Its length is the ``dof`` of the canonical qpos layout
+    ``[base(7), joints(DOF)]`` — i.e. the number in ``qpos_<dof>dof.csv``.
+
+    The G1 tuples are returned verbatim: they are copied from unitree_rl_mjlab's
+    ``csv_to_npz.py`` and are the wire contract shared with mj-nlp, so they are never
+    re-derived. Every other model (the MSK family) has no stored ordering and is read
+    off its compiled model instead.
+
+    Compiling an MSK XML is slow enough to be worth caching, hence ``lru_cache``.
+
+    Raises:
+        ValueError: if the model is not a single free base followed by 1-DOF joints.
+    """
+    if model_id in constants.JOINT_NAMES:
+        return constants.JOINT_NAMES[model_id]
+
+    model = load_model(model_id)
+    order = sorted(range(model.njnt), key=lambda i: model.jnt_qposadr[i])
+    free = [i for i in order if model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE]
+    if len(free) != 1 or model.jnt_qposadr[free[0]] != 0:
+        raise ValueError(
+            f"{model_id!r}: expected exactly one free joint at qpos[0:7]; got "
+            f"{len(free)} free joint(s). The canonical layout is [base(7), joints(DOF)]."
+        )
+    return tuple(
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
+        for i in order
+        if i != free[0]
+    )
 
 
 def home_keyframe_qpos(model_id: str) -> np.ndarray:

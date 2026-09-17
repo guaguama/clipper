@@ -43,6 +43,27 @@ MYOLEGS_XML: Path = _MSK_DIR / "myo_sim" / "leg" / "myolegs.xml"
 # MyoFullBody with the right leg amputated transfemorally + OSL knee-ankle prosthesis
 # (self-contained folder; same base/joint conventions as myofullbody).
 OSL_FULLBODY_XML: Path = _MSK_DIR / "osl_fullbody" / "body" / "osl_fullbody.xml"
+# Joint-actuated twin of `osl_fullbody`: identical kinematics (same joint names/types/qpos
+# addresses, same bodies/sites/keyframe, fingers already stripped in the XML), with the 390
+# muscles replaced by 27 position servos (the 2 OSL torque motors are shared). Flattened —
+# no <include> — but shares the same meshes/ via meshdir="../". Used by ../mj-nlp, which
+# ships the same model at models/osl/osl_fullbody_robot.xml.
+OSL_FULLBODY_ROBOT_XML: Path = (
+    _MSK_DIR / "osl_fullbody" / "body" / "osl_fullbody_robot.xml"
+)
+# The *official* NeuMoVe Lab MyoFullBody + OSL knee-ankle export (myoassist, built by
+# `assist_sim combine`), vendored self-contained — see the folder's README.md for the
+# provenance and the full difference report. NOT a descendant of `osl_fullbody`, which
+# was hand-assembled: this one has a rigidly welded socket, a lighter residual femur,
+# 11 retained residual muscles, detailed OSL component inertias and a 31.5 mm shorter
+# shank. Both are MyoFullBody-based, so the same musclemimic caches drive it after the
+# joint renames in `NEW_OSL_FULLBODY_ALIASES`. Two socket variants ship; the rigid one
+# is the official export and is FK-identical to `new_osl_fullbody_compliant_socket.xml`
+# under kinematic replay (nothing drives the socket DoFs, so they sit where the weld
+# puts them), so it is the one registered.
+NEW_OSL_FULLBODY_XML: Path = (
+    _MSK_DIR / "new_osl_fullbody" / "body" / "new_osl_fullbody.xml"
+)
 
 # --------------------------------------------------------------------------- #
 # Joint orderings (verbatim from csv_to_npz.py:337-395).
@@ -118,6 +139,8 @@ ROBOT_XML: dict[str, Path] = {
     "myofullbody": MYOFULLBODY_XML,
     "myolegs": MYOLEGS_XML,
     "osl_fullbody": OSL_FULLBODY_XML,
+    "osl_fullbody_robot": OSL_FULLBODY_ROBOT_XML,
+    "new_osl_fullbody": NEW_OSL_FULLBODY_XML,
 }
 
 SCENE_XML: dict[str, Path] = {
@@ -128,7 +151,14 @@ SCENE_XML: dict[str, Path] = {
 # MSK models are loaded via assets/msk XMLs that already bundle a scene; they
 # carry no separate bare/scene split and use the musculoskeletal source/writer.
 MSK_MODELS: frozenset[str] = frozenset(
-    ("osl_ka", "myofullbody", "myolegs", "osl_fullbody")
+    (
+        "osl_ka",
+        "myofullbody",
+        "myolegs",
+        "osl_fullbody",
+        "osl_fullbody_robot",
+        "new_osl_fullbody",
+    )
 )
 
 MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof", *sorted(MSK_MODELS))
@@ -143,6 +173,9 @@ MODELS: tuple[str, ...] = ("g1_29dof", "g1_23dof", *sorted(MSK_MODELS))
 RIGHT_ANKLE_JOINT: dict[str, str] = {
     "osl_ka": "osl_ankle_angle_r",
     "osl_fullbody": "osl_ankle_angle_r",
+    "osl_fullbody_robot": "osl_ankle_angle_r",
+    # The official export namespaces its OSL joints/bodies with an `OSL_KA_L1_` prefix.
+    "new_osl_fullbody": "OSL_KA_L1_osl_ankle_angle_r",
 }
 
 # --------------------------------------------------------------------------- #
@@ -224,9 +257,27 @@ OSL_FULLBODY_ALIASES: dict[str, str] = {
 
 # Per-model joint renames applied by the musclemimic source loader before name-based
 # qpos assembly. Models absent here use their cache joint names verbatim.
+# `new_osl_fullbody` is the same amputated-right-leg case as `osl_fullbody`, but the
+# official export spells three things differently from the MyoFullBody cache: the OSL
+# prosthesis joints carry an `OSL_KA_L1_` namespace prefix, and both elbows are
+# `elbow_flexion_*` rather than myo_sim's `elbow_flex_*`. The elbow rename is not
+# cosmetic — without it the arms stay straight (left-hand height drifts up to 7 cm).
+# With these four, no model joint is left unmapped; the only cache joints that drop are
+# the 9 belonging to the amputated leg (7 right-knee couplers + subtalar + mtp), the
+# same set `osl_fullbody` drops.
+NEW_OSL_FULLBODY_ALIASES: dict[str, str] = {
+    "knee_angle_r": "OSL_KA_L1_osl_knee_angle_r",
+    "ankle_angle_r": "OSL_KA_L1_osl_ankle_angle_r",
+    "elbow_flex_l": "elbow_flexion_l",
+    "elbow_flex_r": "elbow_flexion_r",
+}
+
 MUSCLEMIMIC_SOURCE_ALIASES: dict[str, dict[str, str]] = {
     "myolegs": MYOLEGS_OSL_ALIASES,
     "osl_fullbody": OSL_FULLBODY_ALIASES,
+    # Same amputated right leg, so the same prosthesis remap.
+    "osl_fullbody_robot": OSL_FULLBODY_ALIASES,
+    "new_osl_fullbody": NEW_OSL_FULLBODY_ALIASES,
 }
 
 # --------------------------------------------------------------------------- #
@@ -256,9 +307,53 @@ _MYO_FINGER_JOINTS: tuple[str, ...] = tuple(
     )
 )
 
+# The official `new_osl_fullbody` export lost the `_r` suffix on 4 of the 20 right-hand
+# finger joints (an upstream naming quirk), so `_MYO_FINGER_JOINTS` alone would leave
+# them behind. `_remove_joints` skips the `_r` spellings it cannot find, so the two
+# tuples concatenate cleanly and together reach the full 40.
+_NEW_OSL_UNSUFFIXED_FINGER_JOINTS: tuple[str, ...] = (
+    "cmc_flexion", "cmc_abduction", "md3_flexion", "pm4_flexion",
+)
+
 MSK_REMOVE_JOINTS: dict[str, tuple[str, ...]] = {
     "myofullbody": _MYO_FINGER_JOINTS,
     "osl_fullbody": _MYO_FINGER_JOINTS,
+    # A no-op for the robot variant (its XML ships without the finger joints), but
+    # `_remove_joints` skips names it cannot find, so the table stays uniform and the
+    # entry keeps working if the XML is ever regenerated with fingers present.
+    "osl_fullbody_robot": _MYO_FINGER_JOINTS,
+    # Unlike the others this model ships 5 real keyframes, so `_remove_joints` has to
+    # trim their qpos alongside the deleted joints (nq 120 -> 80).
+    "new_osl_fullbody": _MYO_FINGER_JOINTS + _NEW_OSL_UNSUFFIXED_FINGER_JOINTS,
+}
+
+# The 17 mimic bodies of the OSL full-body models, shared by `osl_fullbody` and its
+# joint-actuated twin `osl_fullbody_robot` (identical body names and layout).
+_OSL_FULLBODY_MIMIC_SITES: dict[str, str] = {
+    "pelvis": "pelvis_mimic",
+    "lumbar1": "upper_body_mimic",
+    "head": "head_mimic",
+    "humerus_l": "left_shoulder_mimic",
+    "ulna_l": "left_elbow_mimic",
+    "lunate_l": "left_hand_mimic",
+    "humerus_r": "right_shoulder_mimic",
+    "ulna_r": "right_elbow_mimic",
+    "lunate_r": "right_hand_mimic",
+    "femur_l": "left_hip_mimic",
+    "tibia_l": "left_knee_mimic",
+    "talus_l": "left_ankle_mimic",
+    "toes_l": "left_toes_mimic",
+    "femur_r": "right_hip_mimic",
+    "osl_knee_assembly": "right_knee_mimic",
+    "osl_ankle_assembly": "right_ankle_mimic",
+    "osl_foot_assembly": "right_toes_mimic",
+}
+
+# Same 17 mimic bodies as the hand-built OSL full-body models; the official export only
+# namespaces the three OSL assembly bodies (`osl_* -> OSL_KA_L1_osl_*`).
+_NEW_OSL_FULLBODY_MIMIC_SITES: dict[str, str] = {
+    (f"OSL_KA_L1_{body}" if body.startswith("osl_") else body): site
+    for body, site in _OSL_FULLBODY_MIMIC_SITES.items()
 }
 
 MSK_MIMIC_SITES: dict[str, dict[str, str]] = {
@@ -304,26 +399,11 @@ MSK_MIMIC_SITES: dict[str, dict[str, str]] = {
         "toes_r": "right_toes_mimic",
     },
     # Full body like `myofullbody`, but the amputated right leg's knee/ankle/toes track
-    # the OSL prosthesis bodies (as in `osl_ka`).
-    "osl_fullbody": {
-        "pelvis": "pelvis_mimic",
-        "lumbar1": "upper_body_mimic",
-        "head": "head_mimic",
-        "humerus_l": "left_shoulder_mimic",
-        "ulna_l": "left_elbow_mimic",
-        "lunate_l": "left_hand_mimic",
-        "humerus_r": "right_shoulder_mimic",
-        "ulna_r": "right_elbow_mimic",
-        "lunate_r": "right_hand_mimic",
-        "femur_l": "left_hip_mimic",
-        "tibia_l": "left_knee_mimic",
-        "talus_l": "left_ankle_mimic",
-        "toes_l": "left_toes_mimic",
-        "femur_r": "right_hip_mimic",
-        "osl_knee_assembly": "right_knee_mimic",
-        "osl_ankle_assembly": "right_ankle_mimic",
-        "osl_foot_assembly": "right_toes_mimic",
-    },
+    # the OSL prosthesis bodies (as in `osl_ka`). Shared verbatim by both OSL full-body
+    # variants — they carry identical bodies.
+    "osl_fullbody": _OSL_FULLBODY_MIMIC_SITES,
+    "osl_fullbody_robot": _OSL_FULLBODY_MIMIC_SITES,
+    "new_osl_fullbody": _NEW_OSL_FULLBODY_MIMIC_SITES,
 }
 
 # --------------------------------------------------------------------------- #
