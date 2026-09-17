@@ -5,10 +5,10 @@ Pipeline: load -> crop -> height-offset -> (optional) standing-pose pad -> write
 Frame indices are 0-based inclusive, matching the scrub viewer's `f` marker.
 
 Examples:
-    # Crop Lafan1 frames 100..400 and write a unitree_rl_mjlab NPZ
+    # Crop Lafan1 frames 100..400 and write an mjlab motion NPZ (50 Hz)
     python scripts/crop_trajectory.py \
         --path ~/.g1mocap/Lafan1/dance1_subject1.npz --source lafan1 --model g1_29dof \
-        --start 100 --stop 400 --format unilab
+        --start 100 --stop 400 --format mjlab
 
     # Crop, raise 3 cm, pad standing at both ends, resample to 50 Hz, preview
     python scripts/crop_trajectory.py \

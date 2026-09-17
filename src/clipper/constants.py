@@ -182,7 +182,7 @@ RIGHT_ANKLE_JOINT: dict[str, str] = {
 # Trajectory sources (clipper `--source` values; no autodetection).
 # --------------------------------------------------------------------------- #
 # DefaultDatasets and Lafan1 share the LocoMuJoCo-format npz loader; bones_seed
-# has its own CSV loader; `unilab` re-loads clipper's own unitree_rl_mjlab output
+# has its own CSV loader; `mjlab` re-loads clipper's own mjlab motion-tracking
 # NPZ and `mj_nlp` re-loads its mj-nlp qpos/time CSV folder (so written clips can
 # be re-visualized / re-cropped). `mj_nlp_out` is a read-only import of an mj-nlp
 # example task's own output `.npz` (the solved MPC rollout `state`) — distinct
@@ -193,7 +193,7 @@ SOURCES: tuple[str, ...] = (
     "default_datasets",
     "lafan1",
     "bones_seed",
-    "unilab",
+    "mjlab",
     "mj_nlp",
     "mj_nlp_out",
     # headerless qpos CSV with xyzw (scalar-last) quaternion and no timing, as
@@ -221,6 +221,15 @@ BONES_SEED_DEFAULT_FPS: float = 120.0
 # srb_kino qpos CSVs (fed to unitree_rl_mjlab's csv_to_npz) carry no frame rate;
 # the producer emits at 50 Hz. Override via `--fps`.
 SRB_KINO_DEFAULT_FPS: float = 50.0
+
+# Frame rate a written mjlab motion NPZ must be at. This is NOT a stylistic default:
+# the tracking task's MotionLoader never reads the NPZ's `fps` key, it advances one
+# motion frame per environment step, and both mjlab and unitree_rl_mjlab configure
+# tracking with `timestep=0.005` x `decimation=4` (`step_dt` = 0.02 s). A clip written
+# at any other rate therefore trains against a reference playing at the wrong speed,
+# with nothing raising. Matches upstream csv_to_npz's own `--output-fps` default.
+# The `mjlab` writer resamples to this unless `--output-fps` says otherwise.
+MJLAB_MOTION_FPS: float = 50.0
 
 # musclemimic caches store `frequency` (100 Hz for the current AMASS retargets);
 # used only as a fallback if a file is missing it. Override via `--fps`.

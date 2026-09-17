@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import mj_nlp, musclemimic, sbto, unilab
+from . import mj_nlp, mjlab, musclemimic, sbto
 
 WRITERS: dict[str, Callable[..., object]] = {
-    # `unilab` writes the unitree_rl_mjlab motion NPZ (file layout under
-    # outputs/unitree_rl_mjlab/<model>/ is unchanged); matches the source id.
-    "unilab": unilab.write,
+    # `mjlab` writes the mjlab motion-tracking NPZ (the same artifact its fork
+    # unitree_rl_mjlab consumes), under outputs/mjlab/<model>/; matches the source
+    # id. Renamed from `unilab` — see writers/mjlab.py.
+    "mjlab": mjlab.write,
     "mj_nlp": mj_nlp.write,
     # round-trip musclemimic cache npz (MSK models). See writers/musclemimic.py.
     "musclemimic": musclemimic.write,

@@ -16,11 +16,11 @@ from . import (
     locomujoco,
     mj_nlp,
     mj_nlp_out,
+    mjlab,
     musclemimic,
     sbto,
     sbto_out,
     srb_kino,
-    unilab,
 )
 
 # DefaultDatasets and Lafan1 share the LocoMuJoCo npz format/loader.
@@ -28,8 +28,9 @@ SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
     "default_datasets": locomujoco.load,
     "lafan1": locomujoco.load,
     "bones_seed": bones_seed.load,
-    # clipper's own unitree_rl_mjlab output, re-loadable for viz/re-crop.
-    "unilab": unilab.load,
+    # clipper's own mjlab motion NPZ, re-loadable for viz/re-crop (also reads the
+    # identical artifact written for unitree_rl_mjlab). Renamed from `unilab`.
+    "mjlab": mjlab.load,
     # mj-nlp (sim-nlp) qpos/time CSV folder, re-loadable for viz/re-crop.
     "mj_nlp": mj_nlp.load,
     # mj-nlp task-output npz (solved MPC rollout `state`), read-only import.
