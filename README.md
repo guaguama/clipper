@@ -90,6 +90,9 @@ matching source id, so a converted clip can be re-viewed or re-cropped.
 | `--speed` | real-time multiplier (`2` = 2×) |
 | `--no-loop` | play once instead of looping |
 | `--no-floor` | hide the ground plane (no-op for MSK models, which bundle a scene) |
+| `--skybox` | PNG to use as the sky for this run, swapped in memory (assets untouched); a single image must be square and is tiled onto all 6 cube faces. A matching sky/floor pair ships in `assets/textures/` (`graveyard_skybox.png`, `graveyard_floor.png`) |
+| `--floor-texture` | seamless PNG tiled over the ground plane every 2 m, swapped in memory; no-op with `--no-floor` on G1 |
+| `--clones` / `--clone-spacing` | show N copies of the model on an evenly spaced grid (default 1.5 m apart), all playing the motion in sync; scrub sliders apply to every copy |
 
 ### `crop_trajectory.py`
 
@@ -105,6 +108,9 @@ matching source id, so a converted clip can be re-viewed or re-cropped.
 | `--output-fps` | resample (lerp + slerp); default keeps the source rate, **except `--format mjlab`, which defaults to 50 Hz** |
 | `--name` | output file stem (default derived from source + crop range) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
+| `--skybox` | as above; affects only `--visualize` / `--save-video`, never the written file |
+| `--floor-texture` | as above; affects only `--visualize` / `--save-video`, never the written file |
+| `--clones` / `--clone-spacing` | as above; affects only `--visualize` / `--save-video`, never the written file |
 
 ### Scrub mode
 

@@ -10,11 +10,15 @@ scene (floor/lights/skybox/cameras), so it is compiled directly. The ``*_mimic``
 tracking sites are injected via ``MjSpec`` (as musclemimic does at build time) so
 the round-trip writer can reproduce the cache's site FK; they are group-4 geoms,
 hidden in the viewer by default. The ``floor`` argument is a no-op for MSK models.
+
+``skybox`` swaps the sky for one PNG in memory (any model); the asset files on disk
+are never touched.
 """
 
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -93,34 +97,79 @@ def _add_mimic_sites(spec: "mujoco.MjSpec", body2site: dict[str, str]) -> None:
         )
 
 
-def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
-    """Compile and return the MuJoCo model for `model_id`.
+def _check_png(path: str | Path, what: str) -> Path:
+    """Resolve `path` and require an existing PNG (MuJoCo reads no other format)."""
+    path = Path(path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"{what} image not found: {path}")
+    if path.suffix.lower() != ".png":
+        raise ValueError(f"{what} must be a PNG (MuJoCo reads no other format): {path}")
+    return path
 
-    Args:
-        model_id: a G1 id (``"g1_29dof"``/``"g1_23dof"``) or any MSK id in
-            ``constants.MSK_MODELS``.
-        floor: If True, add a ground-plane geom and a light to the world. Ignored
-            for MSK models (their bundled scene already provides one).
 
-    Returns:
-        Compiled ``mujoco.MjModel``. qpos layout is ``[base(7), joints(DOF)]``.
+def _set_floor_texture(spec: "mujoco.MjSpec", path: str | Path, tile_m: float = 2.0) -> None:
+    """Texture every ``floor`` plane in the spec with the PNG `path`.
+
+    The image is tiled every `tile_m` meters (``texuniform``), so it should be
+    seamless. No-op when the spec has no floor (G1 with ``floor=False``).
+    Reflectance is zeroed and the geom's rgba reset to MuJoCo's "unset" grey, which
+    otherwise tints the material (the musclemimic scene sets a green-ish rgba).
     """
-    if model_id not in constants.ROBOT_XML:
-        raise ValueError(
-            f"Unknown model {model_id!r}; expected one of {constants.MODELS}."
-        )
+    path = _check_png(path, "Floor texture")
+    floors = [
+        g for g in spec.geoms if g.name == "floor" and g.type == mujoco.mjtGeom.mjGEOM_PLANE
+    ]
+    if not floors:
+        return
+    spec.add_texture(name="clipper_floor", type=mujoco.mjtTexture.mjTEXTURE_2D, file=str(path))
+    mat = spec.add_material(
+        name="clipper_floor",
+        textures=["", "clipper_floor"],
+        texrepeat=[1.0 / tile_m, 1.0 / tile_m],
+        reflectance=0.0,
+    )
+    mat.texuniform = True
+    for geom in floors:
+        geom.material = "clipper_floor"
+        geom.rgba = [0.5, 0.5, 0.5, 1.0]
+
+
+def _set_skybox(spec: "mujoco.MjSpec", path: str | Path) -> None:
+    """Point every skybox texture in the spec at the PNG `path` (adds one if none).
+
+    Replaces *all* skybox textures because some scenes declare more than one
+    (``osl_ka`` has the musclemimic PNG plus a white gradient). The path is made
+    absolute so the scene's ``<compiler texturedir>`` cannot redirect it.
+    """
+    path = _check_png(path, "Skybox")
+
+    skyboxes = [t for t in spec.textures if t.type == mujoco.mjtTexture.mjTEXTURE_SKYBOX]
+    if not skyboxes:
+        skyboxes = [spec.add_texture(name="skybox", type=mujoco.mjtTexture.mjTEXTURE_SKYBOX)]
+    for tex in skyboxes:
+        tex.builtin = mujoco.mjtBuiltin.mjBUILTIN_NONE
+        tex.file = str(path)
+        tex.gridsize = [1, 1]
+        tex.width = 0
+        tex.height = 0
+
+
+def _build_spec(model_id: str, floor: bool) -> "mujoco.MjSpec":
+    """Return the uncompiled spec for `model_id`, with clipper's edits applied.
+
+    MSK: bundled scene + finger-joint removal + mimic sites. G1: the bare robot XML,
+    plus (if `floor`) the reconstructed scene_g1_*.xml environment.
+    """
     xml_path = str(constants.ROBOT_XML[model_id])
+    spec = mujoco.MjSpec.from_file(xml_path)
 
     if model_id in constants.MSK_MODELS:
-        spec = mujoco.MjSpec.from_file(xml_path)
         _remove_joints(spec, constants.MSK_REMOVE_JOINTS.get(model_id, ()))
         _add_mimic_sites(spec, constants.MSK_MIMIC_SITES.get(model_id, {}))
-        return spec.compile()
+        return spec
 
     if not floor:
-        return mujoco.MjModel.from_xml_path(xml_path)
-
-    spec = mujoco.MjSpec.from_file(xml_path)
+        return spec
 
     # Reconstruct scene_g1_*.xml's environment
     spec.stat.center = np.array([1.0, 0.7, 1.0])
@@ -172,6 +221,80 @@ def load_model(model_id: str, floor: bool = True) -> mujoco.MjModel:
     floor_geom.size = np.array([0.0, 0.0, 0.05])
     floor_geom.material = "groundplane"
 
+    return spec
+
+
+def _attach_clones(spec: "mujoco.MjSpec", model_id: str, n: int) -> None:
+    """Add ``n - 1`` extra copies of the robot to `spec`, prefixed ``c1_``, ``c2_``...
+
+    Only the free-jointed root body is attached (MjSpec carries its tendons,
+    actuators and equalities along), so the scene — floor, lights, sky — is not
+    duplicated. Each copy's qpos block repeats the single model's joint order, so
+    the combined qpos is the single pose tiled ``n`` times. Copies attach at the
+    origin; the viewers place them by writing each block's base xy (a frame offset
+    would be overridden by the free joint anyway). Keyframes are sized for one copy
+    and are dropped — from each child *before* attaching, since attach copies them
+    in (as ``c<i>_``-prefixed keys, which collide when unnamed).
+    """
+    def free_root(s: "mujoco.MjSpec") -> "mujoco.MjsBody":
+        for body in s.worldbody.bodies:
+            if any(j.type == mujoco.mjtJoint.mjJNT_FREE for j in body.joints):
+                return body
+        raise ValueError(f"{model_id!r} has no free-jointed root body to clone.")
+
+    free_root(spec)  # fail early, before building any copies
+    for key in list(spec.keys):
+        spec.delete(key)
+    for i in range(1, n):
+        child = _build_spec(model_id, floor=False)
+        for key in list(child.keys):
+            child.delete(key)
+        spec.worldbody.add_frame().attach_body(free_root(child), f"c{i}_", "")
+
+
+def load_model(
+    model_id: str,
+    floor: bool = True,
+    skybox: str | Path | None = None,
+    clones: int = 1,
+    floor_texture: str | Path | None = None,
+) -> mujoco.MjModel:
+    """Compile and return the MuJoCo model for `model_id`.
+
+    Args:
+        model_id: a G1 id (``"g1_29dof"``/``"g1_23dof"``) or any MSK id in
+            ``constants.MSK_MODELS``.
+        floor: If True, add a ground-plane geom and a light to the world. Ignored
+            for MSK models (their bundled scene already provides one).
+        skybox: Optional PNG to use as the skybox instead of the scene's own. A
+            single image must be square; MuJoCo tiles it onto all 6 cube faces.
+        floor_texture: Optional seamless PNG for the ground plane, tiled every
+            2 m. Ignored when the model has no floor.
+        clones: Number of robot copies (view-only; see ``_attach_clones``). Loaders
+            and writers need the default of 1.
+
+    Returns:
+        Compiled ``mujoco.MjModel``. qpos layout is ``[base(7), joints(DOF)]``,
+        repeated `clones` times.
+    """
+    if model_id not in constants.ROBOT_XML:
+        raise ValueError(
+            f"Unknown model {model_id!r}; expected one of {constants.MODELS}."
+        )
+    if clones < 1:
+        raise ValueError(f"clones must be >= 1, got {clones}.")
+
+    simple = clones == 1 and skybox is None and floor_texture is None
+    if simple and not floor and model_id not in constants.MSK_MODELS:
+        return mujoco.MjModel.from_xml_path(str(constants.ROBOT_XML[model_id]))
+
+    spec = _build_spec(model_id, floor)
+    if clones > 1:
+        _attach_clones(spec, model_id, clones)
+    if skybox is not None:
+        _set_skybox(spec, skybox)
+    if floor_texture is not None:
+        _set_floor_texture(spec, floor_texture)
     return spec.compile()
 
 

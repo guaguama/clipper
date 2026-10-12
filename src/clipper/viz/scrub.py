@@ -32,8 +32,7 @@ from .. import constants
 from ..qpos import joint_qpos_address
 from ..trajectory import Trajectory
 from .camera import center_on_pelvis
-from .markers import draw_markers
-from .replay import _default_render_flags_off, set_pose
+from .replay import _default_render_flags_off, draw_clone_markers, grid_radius, set_pose
 
 
 def _clamp_frame(f: float, n: int) -> int:
@@ -55,6 +54,7 @@ def scrub(
     ankle_step: float = 1.0,
     coarse: int = 10,
     poll_ms: int = 30,
+    clone_offsets: np.ndarray | None = None,
 ) -> None:
     """Interactively scrub `traj` with frame / z-height / right-ankle sliders + keys.
 
@@ -68,6 +68,8 @@ def scrub(
         coarse: Frame jump per `w`/`s` keypress.
         poll_ms: Interval (ms) of the timer that closes the window when the
             MuJoCo viewer is closed.
+        clone_offsets: Grid offsets when `model` holds several copies (see
+            `replay.set_pose`); every slider applies to all copies.
     """
     n = traj.num_frames
     fps = float(traj.fps)
@@ -119,11 +121,16 @@ def scrub(
         joint_offsets = None
         if has_ankle:
             joint_offsets = {ankle_adr: np.deg2rad(_clamp(ankle_slider.val, ankle_range))}
-        set_pose(model, data, traj, f, z_offset=z, joint_offsets=joint_offsets)
+        set_pose(
+            model, data, traj, f, z_offset=z, joint_offsets=joint_offsets,
+            clone_offsets=clone_offsets,
+        )
         if viewer is not None:
             if traj.markers is not None:
                 viewer.user_scn.ngeom = 0
-                draw_markers(viewer.user_scn, traj.markers[f] + np.array([0.0, 0.0, z]))
+                draw_clone_markers(
+                    viewer.user_scn, traj.markers[f] + np.array([0.0, 0.0, z]), clone_offsets
+                )
             try:
                 viewer.sync()
             except Exception:
@@ -191,7 +198,9 @@ def scrub(
     ) as v:
         viewer = v
         _default_render_flags_off(viewer)
-        center_on_pelvis(viewer.cam, traj.qpos[0], traj.model)  # one-time start frame; user owns it after
+        center_on_pelvis(  # one-time start frame; user owns it after
+            viewer.cam, traj.qpos[0], traj.model, extra_distance=grid_radius(clone_offsets)
+        )
 
         # Three stacked sliders when an ankle joint exists, else two (original).
         if has_ankle:

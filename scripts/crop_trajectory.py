@@ -73,25 +73,52 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--name", type=str, default=None, help="Output file stem (default derived).")
     p.add_argument("--visualize", action="store_true", help="Replay the final clip first.")
     p.add_argument("--save-video", action="store_true", help="Render the final clip to an mp4.")
+    p.add_argument(
+        "--skybox", type=Path, default=None,
+        help="PNG skybox for --visualize / --save-video only (single images must be "
+        "square). Does not affect the written NPZ.",
+    )
+    p.add_argument(
+        "--floor-texture", type=Path, default=None,
+        help="Seamless PNG tiled over the ground plane, for --visualize / "
+        "--save-video only. Does not affect the written NPZ.",
+    )
+    p.add_argument(
+        "--clones", type=int, default=1,
+        help="Model copies on an evenly spaced grid, in sync, for --visualize / "
+        "--save-video only. Does not affect the written NPZ.",
+    )
+    p.add_argument(
+        "--clone-spacing", type=float, default=1.5,
+        help="Distance (m) between neighbouring clones.",
+    )
     return p.parse_args(argv)
 
 
-def _save_video(model_id: str, traj, path: Path) -> None:
+def _save_video(
+    model_id: str, traj, path: Path, skybox: Path | None = None, clones: int = 1,
+    clone_spacing: float = 1.5, floor_texture: Path | None = None,
+) -> None:
     """Offscreen-render `traj` to an mp4 beside the NPZ (best effort)."""
     try:
         import imageio.v2 as imageio
         import mujoco
 
         from clipper.viz.camera import center_on_pelvis
-        from clipper.viz.markers import draw_markers
-        from clipper.viz.replay import set_pose
+        from clipper.viz.replay import (
+            draw_clone_markers, grid_offsets, grid_radius, set_pose,
+        )
     except Exception as exc:  # pragma: no cover - optional dep
         raise SystemExit(f"--save-video unavailable: {exc}")
 
-    model = load_model(model_id, floor=True)
+    model = load_model(
+        model_id, floor=True, skybox=skybox, clones=clones, floor_texture=floor_texture
+    )
+    offsets = grid_offsets(clones, clone_spacing) if clones > 1 else None
     data = mujoco.MjData(model)
     try:
-        renderer = mujoco.Renderer(model, height=480, width=640)
+        # The 10000-geom default fits one MSK model (~1.4k geoms) but not a grid.
+        renderer = mujoco.Renderer(model, height=480, width=640, max_geom=10000 * clones)
     except Exception as exc:
         raise SystemExit(
             f"--save-video: could not create an offscreen GL context ({exc}). "
@@ -105,11 +132,11 @@ def _save_video(model_id: str, traj, path: Path) -> None:
     cam = mujoco.MjvCamera()
     frames = []
     for k in range(traj.num_frames):
-        set_pose(model, data, traj, k)
-        center_on_pelvis(cam, traj.qpos[k], traj.model)
+        set_pose(model, data, traj, k, clone_offsets=offsets)
+        center_on_pelvis(cam, traj.qpos[k], traj.model, extra_distance=grid_radius(offsets))
         renderer.update_scene(data, cam)
         if traj.markers is not None:
-            draw_markers(renderer.scene, traj.markers[k])
+            draw_clone_markers(renderer.scene, traj.markers[k], offsets)
         frames.append(renderer.render())
     renderer.close()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,6 +148,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.path.exists():
         raise SystemExit(f"Trajectory file not found: {args.path}")
+    if args.clones < 1:
+        raise SystemExit(f"--clones must be >= 1, got {args.clones}.")
 
     model = load_model(args.model, floor=False)
     loader = get_loader(args.source)
@@ -149,15 +178,27 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.visualize:
         from clipper.viz import replay
+        from clipper.viz.replay import grid_offsets
 
-        replay(load_model(args.model), traj)
+        offsets = (
+            grid_offsets(args.clones, args.clone_spacing) if args.clones > 1 else None
+        )
+        view_model = load_model(
+            args.model, skybox=args.skybox, clones=args.clones,
+            floor_texture=args.floor_texture,
+        )
+        replay(view_model, traj, clone_offsets=offsets)
 
     writer = get_writer(args.format)
     out = writer(traj, output_fps=args.output_fps, name=args.name)
     print(f"Wrote {args.format} -> {out}")
 
     if args.save_video:
-        _save_video(args.model, traj, out.with_suffix(".mp4"))
+        _save_video(
+            args.model, traj, out.with_suffix(".mp4"), skybox=args.skybox,
+            clones=args.clones, clone_spacing=args.clone_spacing,
+            floor_texture=args.floor_texture,
+        )
 
 
 if __name__ == "__main__":

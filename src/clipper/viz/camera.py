@@ -40,7 +40,10 @@ def _view_for(model_id: str | None) -> CameraView:
 
 
 def center_on_pelvis(
-    cam: "mujoco.MjvCamera", qpos_frame, model_id: str | None = None
+    cam: "mujoco.MjvCamera",
+    qpos_frame,
+    model_id: str | None = None,
+    extra_distance: float = 0.0,
 ) -> None:
     """Point a free ``MjvCamera`` at the pelvis of this qpos frame.
 
@@ -55,9 +58,11 @@ def center_on_pelvis(
             the first 3 entries are the world pelvis position.
         model_id: Trajectory's target model; selects the preset. ``None`` falls
             back to the G1 preset.
+        extra_distance: Meters added to the preset distance, e.g. the clone grid's
+            radius so every copy fits in the starting view.
     """
     view = _view_for(model_id)
     cam.azimuth = view.azimuth
     cam.elevation = view.elevation
-    cam.distance = view.distance
+    cam.distance = view.distance + extra_distance
     cam.lookat[:] = qpos_frame[:3]
