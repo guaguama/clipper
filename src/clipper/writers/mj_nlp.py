@@ -10,14 +10,11 @@ folder holding two plain MuJoCo-standard CSVs (see ``mj-nlp/trajectories/playbac
 clipper's ``Trajectory.qpos`` is already in the target model's qpos layout, and the
 qpos ordering is identical between clipper and mj-nlp for every shared model, so the
 array is written out directly with no re-ordering. Verified for the G1 (same joint
-order/types, only a ``robot/`` namespace prefix differs) and for ``osl_fullbody_robot``
-(mj-nlp ships the same XML under ``models/osl/``). The base quaternion is already
+order/types, only a ``robot/`` namespace prefix differs). The base quaternion is already
 MuJoCo wxyz, matching playback's assumption.
 
 ``dof`` comes from ``model.joint_names`` rather than the G1-only
-``constants.JOINT_NAMES``, so this writer serves the MSK models too — e.g.
-``osl_fullbody_robot`` emits the ``qpos_77dof.csv`` that mj-nlp's ``examples/osl_walk``
-expects under ``trajectories/osl/<group>/<clip>/``.
+``constants.JOINT_NAMES``, so this writer serves the MSK models too.
 """
 
 from __future__ import annotations

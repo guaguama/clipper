@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> None:
         args.path, model, args.model, source=args.source, fps=args.fps
     )
     if args.mode == "scrub":
-        scrub(model, traj)
+        scrub(model, traj, path=args.path)
     else:
         replay(model, traj, fps=args.fps, loop=not args.no_loop, speed=args.speed)
 

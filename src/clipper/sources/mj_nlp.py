@@ -17,9 +17,10 @@ between clipper and mj-nlp), so they map onto the requested model by joint name
 via `build_qpos` — a 29-DOF clip can be viewed on g1_23dof and vice-versa.
 
 Resolving which joint order a CSV is in is width-based, and **the target model's own
-nq is tried first**: `osl_ka` is nq 30, the same width as `g1_23dof`, so consulting the
-G1 table first would map an `osl_ka` clip onto G1 joint names — none of which match, so
-`build_qpos` would drop every column and silently yield an all-zero-joint clip. Only
+nq is tried first**: widths can collide across model families (the former `osl_ka` was
+nq 30, the same as `g1_23dof`), and consulting the G1 table first would map such a clip
+onto G1 joint names — none of which match, so `build_qpos` would drop every column and
+silently yield an all-zero-joint clip. Only
 when the width is *not* the target model's own does the G1 table apply, which is what
 serves the cross-dof case (a 36-wide clip viewed on `g1_23dof`).
 """

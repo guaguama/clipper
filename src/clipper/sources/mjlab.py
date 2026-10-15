@@ -13,15 +13,16 @@ Schema (see ``writers/mjlab.py``):
 - ``fps`` ``(1,)`` — frame rate.
 
 The NPZ does not record which model wrote it, so the joint order is resolved from the
-DOF count, **the target model's own first**: ``osl_ka`` and ``g1_23dof`` are both 23
-DOF, and reading one as the other would map onto joint names that match nothing, so
+DOF count, **the target model's own first**: DOF counts can collide across model
+families (the former ``osl_ka`` and ``g1_23dof`` were both 23 DOF), and reading one as
+the other would map onto joint names that match nothing, so
 `build_qpos` would return an all-zero-joint clip with no exception. Only when the DOF
 count is *not* the target's does the G1 table apply, which serves the cross-model case
 (a 29-DOF clip viewed on g1_23dof and vice-versa; extra DOFs fill 0 / drop).
 
 The base pose is read from body 0 rather than from the joint block, so the body count
 never has to be known ahead of time — it varies by model (30 for either G1, 105 for
-``new_osl_fullbody``). Velocities in the NPZ are derived data and are ignored on load.
+``osl_fullbody``). Velocities in the NPZ are derived data and are ignored on load.
 """
 
 from __future__ import annotations

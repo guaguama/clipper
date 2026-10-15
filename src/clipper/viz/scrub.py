@@ -7,12 +7,16 @@ beside it is display + mouse-camera only. Focus the slider window and use:
   ``w``/``s`` (±``coarse`` frames) to move through the trajectory;
 * the **Z-height** slider (readout signed meters) or ``q``/``e`` to raise/lower a
   global z-offset (ground-clipping fix), ``r`` to reset it to 0;
-* the **R-ankle** slider (signed degrees) or ``z``/``c`` to rotate a global
+* the **R-ankle (OSL)** slider (signed degrees) or ``z``/``c`` to rotate a global
   right-ankle offset (flatten the OSL prosthetic foot) — only when the model has a
   mapped right ankle (``constants.RIGHT_ANKLE_JOINT``);
-* ``f`` prints a marker line (frame + time + z + ankle) to the console — press it at
-  a clip's start and end to note crop bounds, and to read off the ankle offset to
-  bake in with ``crop_trajectory.py --ankle-offset``.
+* the **L-ankle (bio)** slider or ``v``/``b`` for the same on the biological ankle
+  (flatten the intact foot) — only when the model has a mapped biological ankle
+  (``constants.BIO_ANKLE_JOINT``);
+* ``f`` prints a marker line (frame + time + z + ankles) to the console, followed by
+  the ``crop_trajectory.py`` command (minus ``--format``) that bakes in the current
+  offsets — press it at a clip's start and end: the command's ``--start``/``--stop``
+  are the last two marked frames (one mark gives ``--start`` only).
 
 Everything runs on matplotlib's main thread, so the keyboard and the sliders share
 one code path (a key just calls ``slider.set_val`` and the slider's ``on_changed``
@@ -23,6 +27,9 @@ thread; we only ever call ``viewer.sync()`` from here.
 """
 
 from __future__ import annotations
+
+import shlex
+from pathlib import Path
 
 import numpy as np
 import mujoco
@@ -55,19 +62,22 @@ def scrub(
     ankle_step: float = 1.0,
     coarse: int = 10,
     poll_ms: int = 30,
+    path: Path | None = None,
 ) -> None:
-    """Interactively scrub `traj` with frame / z-height / right-ankle sliders + keys.
+    """Interactively scrub `traj` with frame / z-height / ankle sliders + keys.
 
     Args:
         model: Compiled model whose qpos layout matches `traj.qpos`.
         traj: Trajectory to scrub.
         z_range: Symmetric bound (meters) for the global z-height offset slider.
         z_fine_step: Z-offset change per `q`/`e` keypress (meters).
-        ankle_range: Symmetric bound (degrees) for the right-ankle offset slider.
-        ankle_step: Ankle-offset change per `z`/`c` keypress (degrees).
+        ankle_range: Symmetric bound (degrees) for both ankle offset sliders.
+        ankle_step: Ankle-offset change per `z`/`c` or `v`/`b` keypress (degrees).
         coarse: Frame jump per `w`/`s` keypress.
         poll_ms: Interval (ms) of the timer that closes the window when the
             MuJoCo viewer is closed.
+        path: The trajectory file, for the crop command printed by `f`
+            (``<path>`` placeholder when omitted).
     """
     n = traj.num_frames
     fps = float(traj.fps)
@@ -78,6 +88,10 @@ def scrub(
     ankle_name = constants.RIGHT_ANKLE_JOINT.get(traj.model)
     ankle_adr = joint_qpos_address(model, ankle_name) if ankle_name else None
     has_ankle = ankle_adr is not None
+    # Same for the biological (intact) ankle; None -> no bio-ankle slider/keys.
+    bio_name = constants.BIO_ANKLE_JOINT.get(traj.model)
+    bio_adr = joint_qpos_address(model, bio_name) if bio_name else None
+    has_bio = bio_adr is not None
 
     # matplotlib drives the controls; bail clearly on a non-interactive backend.
     import matplotlib
@@ -100,7 +114,9 @@ def scrub(
     frame_slider = None
     z_slider = None
     ankle_slider = None
+    bio_slider = None
     timer = None
+    marks: list[int] = []  # frames marked with `f`, in press order
 
     def _fmt_frame(f: float) -> str:
         f = int(f)
@@ -116,9 +132,11 @@ def scrub(
         """The sole pose-writer; reads the current slider values."""
         f = _clamp_frame(frame_slider.val, n)
         z = _clamp(z_slider.val, z_range)
-        joint_offsets = None
+        joint_offsets = {}
         if has_ankle:
-            joint_offsets = {ankle_adr: np.deg2rad(_clamp(ankle_slider.val, ankle_range))}
+            joint_offsets[ankle_adr] = np.deg2rad(_clamp(ankle_slider.val, ankle_range))
+        if has_bio:
+            joint_offsets[bio_adr] = np.deg2rad(_clamp(bio_slider.val, ankle_range))
         set_pose(model, data, traj, f, z_offset=z, joint_offsets=joint_offsets)
         if viewer is not None:
             if traj.markers is not None:
@@ -129,11 +147,35 @@ def scrub(
             except Exception:
                 pass  # viewer may have closed mid-update; timer will tear down
 
+    def _crop_command() -> str:
+        """crop_trajectory.py invocation for the last two marks + current offsets."""
+        path_arg = shlex.quote(str(Path(path).expanduser().resolve())) if path else "<path>"
+        cmd = [
+            "python scripts/crop_trajectory.py",
+            f"--path {path_arg}", f"--source {traj.source}", f"--model {traj.model}",
+        ]
+        bounds = sorted(marks[-2:])
+        cmd.append(f"--start {bounds[0]}")
+        if len(bounds) == 2:
+            cmd.append(f"--stop {bounds[1]}")
+        # Offsets are emitted only when nonzero, so the derived clip name stays clean.
+        # z is kept to 0.1 mm (the slider can be dragged to any float).
+        z = round(_clamp(z_slider.val, z_range), 4)
+        if z != 0.0:
+            cmd.append(f"--height-offset {z:g}")
+        if has_ankle and (a := _clamp(ankle_slider.val, ankle_range)) != 0.0:
+            cmd.append(f"--ankle-offset {a:g}")
+        if has_bio and (b := _clamp(bio_slider.val, ankle_range)) != 0.0:
+            cmd.append(f"--bio-ankle-offset {b:g}")
+        return " ".join(cmd)
+
     def _on_change(_val=None) -> None:
         frame_slider.valtext.set_text(_fmt_frame(frame_slider.val))
         z_slider.valtext.set_text(_fmt_z(z_slider.val))
         if has_ankle:
             ankle_slider.valtext.set_text(_fmt_ankle(ankle_slider.val))
+        if has_bio:
+            bio_slider.valtext.set_text(_fmt_ankle(bio_slider.val))
         _repose()
 
     def _on_key(event) -> None:
@@ -144,7 +186,11 @@ def scrub(
             line = f"  MARK  frame {f}/{n}  t={f / fps:.2f}s  z={z:+.3f}m"
             if has_ankle:
                 line += f"  ankle={_clamp(ankle_slider.val, ankle_range):+.1f}deg"
+            if has_bio:
+                line += f"  bio_ankle={_clamp(bio_slider.val, ankle_range):+.1f}deg"
             print(line)
+            marks.append(f)
+            print(f"  CROP  {_crop_command()}")
             return
         cur = _clamp_frame(frame_slider.val, n)
         if key == "a":
@@ -165,6 +211,10 @@ def scrub(
             ankle_slider.set_val(_clamp(ankle_slider.val + ankle_step, ankle_range))
         elif has_ankle and key == "c":  # right ankle -1 deg (CW)
             ankle_slider.set_val(_clamp(ankle_slider.val - ankle_step, ankle_range))
+        elif has_bio and key == "v":  # biological ankle +1 deg
+            bio_slider.set_val(_clamp(bio_slider.val + ankle_step, ankle_range))
+        elif has_bio and key == "b":  # biological ankle -1 deg
+            bio_slider.set_val(_clamp(bio_slider.val - ankle_step, ankle_range))
         # set_val triggers on_changed -> _on_change -> readout update + re-pose.
 
     def _tick() -> None:
@@ -182,7 +232,9 @@ def scrub(
     )
     if has_ankle:
         keys += f"  z/c R-ankle +-{ankle_step:g}deg"
-    keys += "  f mark."
+    if has_bio:
+        keys += f"  v/b L-ankle(bio) +-{ankle_step:g}deg"
+    keys += "  f mark + print crop command."
     print(keys)
     print("  Or drag the sliders. Close either window to quit.")
 
@@ -193,13 +245,14 @@ def scrub(
         _default_render_flags_off(viewer)
         center_on_pelvis(viewer.cam, traj.qpos[0], traj.model)  # one-time start frame; user owns it after
 
-        # Three stacked sliders when an ankle joint exists, else two (original).
-        if has_ankle:
-            fig = plt.figure(figsize=(6.8, 2.6))
-            rows = [0.72, 0.45, 0.18]
-        else:
-            fig = plt.figure(figsize=(6.8, 1.9))
-            rows = [0.56, 0.18]
+        # Frame + Z-height, plus one slider per mapped ankle: (figure height, rows).
+        layouts = {
+            2: (1.9, [0.56, 0.18]),
+            3: (2.6, [0.72, 0.45, 0.18]),
+            4: (3.3, [0.78, 0.58, 0.38, 0.18]),
+        }
+        height, rows = layouts[2 + int(has_ankle) + int(has_bio)]
+        fig = plt.figure(figsize=(6.8, height))
         try:
             fig.canvas.manager.set_window_title(f"clipper scrub - {traj.name}")
         except Exception:
@@ -213,14 +266,23 @@ def scrub(
         z_slider.valtext.set_text(_fmt_z(0.0))
         frame_slider.on_changed(_on_change)
         z_slider.on_changed(_on_change)
+        next_row = iter(rows[2:])
         if has_ankle:
-            ax_ankle = fig.add_axes([0.16, rows[2], 0.48, 0.16])
+            ax_ankle = fig.add_axes([0.16, next(next_row), 0.48, 0.16])
             ankle_slider = Slider(
-                ax_ankle, "R-ankle", -ankle_range, ankle_range, valinit=0.0,
+                ax_ankle, "R-ankle (OSL)", -ankle_range, ankle_range, valinit=0.0,
                 valstep=ankle_step,
             )
             ankle_slider.valtext.set_text(_fmt_ankle(0.0))
             ankle_slider.on_changed(_on_change)
+        if has_bio:
+            ax_bio = fig.add_axes([0.16, next(next_row), 0.48, 0.16])
+            bio_slider = Slider(
+                ax_bio, "L-ankle (bio)", -ankle_range, ankle_range, valinit=0.0,
+                valstep=ankle_step,
+            )
+            bio_slider.valtext.set_text(_fmt_ankle(0.0))
+            bio_slider.on_changed(_on_change)
 
         # Disable matplotlib's default key shortcuts for THIS figure only (so our
         # q/s/r/f/z/c/etc. don't quit/save/home/fullscreen). Scoped to this canvas —

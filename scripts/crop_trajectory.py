@@ -54,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "(flattens the OSL prosthetic foot). Matches scrub's R-ankle slider.",
     )
     p.add_argument(
+        "--bio-ankle-offset", type=float, default=0.0,
+        help="Global offset (deg) added to the biological (left) ankle joint of every "
+        "frame (flattens the intact foot). Matches scrub's L-ankle (bio) slider.",
+    )
+    p.add_argument(
         "--pad-standing", action="store_true",
         help="Prepend/append a standing pose with a blended transition.",
     )
@@ -128,15 +133,23 @@ def main(argv: list[str] | None = None) -> None:
 
     traj = edits.crop(traj, args.start, args.stop)
     traj = edits.apply_height_offset(traj, args.height_offset)
-    if args.ankle_offset != 0.0:
-        ankle_name = constants.RIGHT_ANKLE_JOINT.get(args.model)
-        ankle_adr = joint_qpos_address(model, ankle_name) if ankle_name else None
-        if ankle_adr is None:
+
+    def _ankle_adr(table: dict[str, str], flag: str, what: str) -> int:
+        name = table.get(args.model)
+        adr = joint_qpos_address(model, name) if name else None
+        if adr is None:
             raise SystemExit(
-                f"--ankle-offset is not supported for model {args.model!r} "
-                "(no mapped right-ankle joint)."
+                f"{flag} is not supported for model {args.model!r} "
+                f"(no mapped {what} joint)."
             )
-        traj = edits.apply_ankle_offset(traj, ankle_adr, args.ankle_offset)
+        return adr
+
+    if args.ankle_offset != 0.0:
+        adr = _ankle_adr(constants.RIGHT_ANKLE_JOINT, "--ankle-offset", "right-ankle")
+        traj = edits.apply_ankle_offset(traj, adr, args.ankle_offset)
+    if args.bio_ankle_offset != 0.0:
+        adr = _ankle_adr(constants.BIO_ANKLE_JOINT, "--bio-ankle-offset", "biological-ankle")
+        traj = edits.apply_ankle_offset(traj, adr, args.bio_ankle_offset, tag="bioankle")
     if args.pad_standing:
         traj = edits.pad_standing(
             traj, args.pre_static, args.pre_blend, args.post_static, args.post_blend

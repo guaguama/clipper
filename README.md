@@ -99,7 +99,8 @@ matching source id, so a converted clip can be re-viewed or re-cropped.
 | `--format` | output format, see [Output formats](#output-formats) (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |
-| `--ankle-offset` | global right-ankle offset (deg); OSL models only, see [Models](#models) |
+| `--ankle-offset` | global right-ankle (OSL) offset (deg); OSL models only, see [Models](#models) |
+| `--bio-ankle-offset` | global biological (left) ankle offset (deg); OSL models only |
 | `--pad-standing` | prepend/append a standing pose with a blended transition |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); default 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp); default keeps the source rate, **except `--format mjlab`, which defaults to 50 Hz** |
@@ -116,9 +117,10 @@ and dialling in offsets. Keys work with the **slider window** focused.
 | `a` / `d` | step −1 / +1 frame |
 | `w` / `s` | jump −10 / +10 frames |
 | `q` / `e` | raise / lower the global z-offset (±5 mm) |
-| `z` / `c` | right-ankle offset +1° / −1° (OSL models only) |
+| `z` / `c` | right-ankle (OSL) offset +1° / −1° (OSL models only) |
+| `v` / `b` | biological (left) ankle offset +1° / −1° (OSL models only) |
 | `r` | reset the z-offset to 0 |
-| `f` | print `frame k/N  t=..s  z=+..m  ankle=+..deg` — mark a clip's bounds and read off the offsets to bake in |
+| `f` | mark: print `frame k/N  t=..s  z=+..m  ankle=+..deg  bio_ankle=+..deg`, then the `crop_trajectory.py` command (minus `--format`) with `--start`/`--stop` = the last two marks and the current offsets |
 
 Close either window to quit.
 
@@ -179,8 +181,9 @@ that import is mjlab-side work.
 ## Models
 
 `--model` is required. Any source can be played on any model with a compatible
-skeleton. MSK models come from [`musclemimic`](../../01_projpegleg/musclemimic) and
-[`myo_sim`](../../01_projpegleg/myo_sim), vendored under `assets/msk/`; all are
+skeleton. MSK models come from [`musclemimic`](../../01_projpegleg/musclemimic),
+[`myo_sim`](../../01_projpegleg/myo_sim) and
+[`myoassist`](../../01_projpegleg/myoassist), vendored under `assets/msk/`; all are
 free-base, and the full-body ones load with their 40 finger joints disabled (matching
 musclemimic's default), which is what makes their `nq` match the caches.
 
@@ -188,36 +191,28 @@ musclemimic's default), which is what makes their `nq` match the caches.
 |---|---|---|---|
 | `g1_29dof` | Unitree G1, 29 DOF | 36 | any G1 source |
 | `g1_23dof` | Unitree G1, 23 DOF | 30 | any G1 source |
-| `osl_ka` | MyoLeg80 + right-leg OSL prosthetic | 30 | `MyoLeg80_OSL_KA` cache |
 | `myolegs` | MyoLegs (biological, myo_sim) | 35 | `MyoLeg80_OSL_KA` cache ¹ |
 | `myofullbody` | full-body MyoSkeleton | 89 | `MyoFullBody` cache |
-| `osl_fullbody` | myofullbody + OSL knee-ankle graft (hand-built) | 84 | `MyoFullBody` cache ² |
-| `osl_fullbody_robot` | `osl_fullbody`, muscles → joint actuators | 84 | `MyoFullBody` cache ² |
-| `new_osl_fullbody` | official myoassist full-body + OSL export | 80 | `MyoFullBody` cache ²˒³ |
+| `osl_fullbody` | myoassist full-body + OSL knee-ankle export, lengthened shank | 80 | `MyoFullBody` cache ² |
 
 ¹ `myolegs` has no clips of its own; the OSL_KA cache's prosthetic knee/ankle are
 renamed back to the biological joints, the `socket_*` DOFs dropped, and the right-knee
 couplers left at 0 (a minor visual approximation).
 
-² The prosthesis is driven from the source's **biological** right knee/ankle; the other
-amputated-leg DOFs (knee couplers, subtalar, mtp) drop and `socket_*` stays at 0.
-`osl_fullbody_robot` is kinematically identical to `osl_fullbody` (same joints, bodies,
-qpos addresses — only `ctrl` differs, which clipper never writes), but is kept a
-separate model for I/O; it exists for `--format mj_nlp`, which is what
-`mj-nlp/examples/osl_walk` expects.
+² The NeuMoVe Lab export built with myo_sim 0.2.3, with the OSL tibial pylon lengthened
+22.5 mm so the prosthetic leg matches the intact one (provenance and edits in
+`assets/msk/osl_fullbody/README.md`). Welded socket, 5 real keyframes (so
+`--pad-standing` seeds from the authored `stand` pose). The prosthesis is driven from
+the source's **biological** right knee/ankle; the other amputated-leg DOFs (knee
+couplers, subtalar, mtp) drop. Its OSL joints carry an `OSL_KA_L1_` prefix and its
+elbows are `elbow_flexion_*`, both handled by a rename table.
 
-³ Not a revision of `osl_fullbody` but the independent NeuMoVe Lab `myoassist` export
-(provenance in `assets/msk/new_osl_fullbody/README.md`): welded socket, lighter residual
-femur, 11 retained residual-limb muscles, 5 real keyframes (so `--pad-standing` seeds
-from a genuine standing pose), and a **31.5 mm shorter knee-to-ankle**, which no offset
-flag can compensate — that needs re-retargeting. Its OSL joints carry an `OSL_KA_L1_`
-prefix and its elbows are `elbow_flexion_*`, all handled by rename tables.
-
-**Prosthesis right-ankle correction.** OSL joints are driven by raw biological
-measurements, so the prosthetic foot may not sit flat. Dial it in with the scrub
-window's R-ankle slider (`z` / `c`), then bake it with `--ankle-offset <deg>`. Applies
-to `osl_ka`, `osl_fullbody`, `osl_fullbody_robot` and `new_osl_fullbody`; other models
-have no slider and the flag errors on them.
+**Ankle corrections.** OSL joints are driven by raw biological measurements, so the
+prosthetic foot may not sit flat, and the intact foot may need the same touch-up. Dial
+them in with the scrub window's R-ankle (OSL) slider (`z` / `c`) and L-ankle (bio)
+slider (`v` / `b`), then bake them with `--ankle-offset <deg>` and
+`--bio-ankle-offset <deg>` (clip suffixes `_ankle±N` / `_bioankle±N`). Applies to
+`osl_fullbody` only; other models have no sliders and the flags error on them.
 
 ## Assets
 

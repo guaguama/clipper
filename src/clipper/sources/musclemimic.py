@@ -21,8 +21,9 @@ Some models need per-model joint renames before the by-name mapping, configured 
   the biological joints.
 - ``osl_fullbody`` is driven directly by the ``MyoFullBody`` cache (same base/joint
   convention, so no reorientation): the source's biological right ``knee_angle_r`` /
-  ``ankle_angle_r`` are renamed onto the prosthesis hinges ``osl_knee_angle_r`` /
-  ``osl_ankle_angle_r`` so the prosthetic leg follows the motion.
+  ``ankle_angle_r`` are renamed onto the prosthesis hinges
+  ``OSL_KA_L1_osl_knee_angle_r`` / ``OSL_KA_L1_osl_ankle_angle_r`` so the prosthetic
+  leg follows the motion, and ``elbow_flex_*`` onto the export's ``elbow_flexion_*``.
 
 See [[clipper-data-sources]].
 """

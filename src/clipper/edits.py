@@ -67,13 +67,16 @@ def _home_standing_qpos(model_id: str) -> np.ndarray:
     return constants.home_qpos(model_id)
 
 
-def apply_ankle_offset(traj: Trajectory, ankle_adr: int, offset_deg: float) -> Trajectory:
-    """Add `offset_deg` (degrees) to the right-ankle joint of every frame.
+def apply_ankle_offset(
+    traj: Trajectory, ankle_adr: int, offset_deg: float, tag: str = "ankle"
+) -> Trajectory:
+    """Add `offset_deg` (degrees) to a single ankle joint of every frame.
 
     Mirrors `apply_height_offset`, but for a single joint column. `ankle_adr` is the
-    qpos address of the right-ankle joint (resolved by the caller from the model);
-    the offset corrects the OSL prosthetic foot's flatness. Matches the scrub
-    viewer's R-ankle slider so a value dialed in there can be baked in here.
+    qpos address of the ankle joint (resolved by the caller from the model): the OSL
+    prosthetic ankle (`tag="ankle"`) or the biological one (`tag="bioankle"`), to
+    flatten that foot. `tag` names the clip suffix. Matches the scrub viewer's
+    R-ankle / L-ankle sliders so a value dialed in there can be baked in here.
     """
     if offset_deg == 0.0:
         return traj
@@ -84,7 +87,7 @@ def apply_ankle_offset(traj: Trajectory, ankle_adr: int, offset_deg: float) -> T
         fps=traj.fps,
         model=traj.model,
         source=traj.source,
-        name=f"{traj.name}_ankle{offset_deg:+g}",
+        name=f"{traj.name}_{tag}{offset_deg:+g}",
         markers=traj.markers,
     )
 

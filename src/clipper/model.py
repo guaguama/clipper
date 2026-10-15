@@ -41,9 +41,9 @@ def _remove_joints(spec: "mujoco.MjSpec", joint_names: tuple[str, ...]) -> None:
 
     Any ``<key>`` in the spec is declared against the *pre-deletion* nq, so its qpos
     is trimmed to the surviving columns first — otherwise the compile fails with
-    ``keyframe 'stand': invalid qpos size``. Only ``new_osl_fullbody`` currently ships
-    real keyframes (5 of them, qpos-only); the hand-built models carry none in the
-    spec, so this is a no-op for them.
+    ``keyframe 'stand': invalid qpos size``. Only ``osl_fullbody`` currently ships
+    real keyframes (5 of them, qpos-only); for models without any in the spec this is
+    a no-op.
     """
     drop = set(joint_names)
     victims = [j for j in spec.joints if j.name in drop]

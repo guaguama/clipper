@@ -18,13 +18,12 @@ ghost). ``qvel`` is dropped: clipper's `Trajectory` stores qpos only and writers
 derive velocities lazily.
 
 The qpos columns are in the solving model's own order, which is identical to
-clipper's for every shared model (the G1s, and ``osl_fullbody_robot`` — mj-nlp ships
-that same XML under ``models/osl/``), so they map onto the requested ``--model`` by
+clipper's for every shared model (the G1s), so they map onto the requested ``--model`` by
 joint name via `build_qpos` (a 29-DOF clip can be viewed on g1_23dof and back).
 
 Which joint order a file is in is inferred from its width, and — as in the ``mj_nlp``
 source — **the target model's own nq is tried first**, because widths collide across
-model families: ``osl_ka`` and ``g1_23dof`` are both nq 30. Consulting the G1 table
+model families (the former ``osl_ka`` and ``g1_23dof`` were both nq 30). Consulting the G1 table
 first would map an MSK rollout onto G1 joint names, none of which match, so
 `build_qpos` would drop every column and silently yield an all-zero-joint clip. The G1
 table applies only when the width is *not* the target model's own, which is what serves
