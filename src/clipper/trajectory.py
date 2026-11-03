@@ -28,6 +28,9 @@ class Trajectory:
             mocap skeleton a retarget tracked). Rendered as spheres in visualization
             for inspection; ``None`` for sources that carry no overlay. Purely a
             visual debug aid — output writers never read it.
+        twist: Optional commanded ``[vx, vy, wz]`` label (m/s, m/s, rad/s) the source
+            carries, e.g. an mj-nlp gait-library node. Writers never read it;
+            ``clipper.gait_library`` uses it to label converted library clips.
     """
 
     qpos: np.ndarray
@@ -36,6 +39,7 @@ class Trajectory:
     source: str
     name: str
     markers: np.ndarray | None = None
+    twist: np.ndarray | None = None
 
     @property
     def num_frames(self) -> int:
@@ -57,3 +61,10 @@ class Trajectory:
                     f"markers must be (N, K, 3) aligned with qpos frames "
                     f"(N={self.qpos.shape[0]}); got shape {self.markers.shape}"
                 )
+        if self.twist is not None:
+            twist = np.asarray(self.twist, dtype=np.float64)
+            if twist.size != 3:
+                raise ValueError(
+                    f"twist must be [vx, vy, wz] (3 values); got shape {twist.shape}"
+                )
+            self.twist = twist.reshape(3)

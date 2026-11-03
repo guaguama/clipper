@@ -60,3 +60,40 @@ def build_qpos(
         qpos[:, adr] = np.asarray(angles, dtype=np.float64)
 
     return qpos
+
+
+def enforce_joint_equalities(model: mujoco.MjModel, qpos: np.ndarray) -> np.ndarray:
+    """Return a copy of `qpos` with every active joint coupling solved exactly.
+
+    MSK knees carry coupler joints (``knee_angle_rotation3_l`` etc.) tied to the
+    knee angle by joint equalities, ``q1 - q1_ref = sum_k c_k (q2 - q2_ref)^k`` with
+    the refs from ``qpos0`` (``q2`` term absent when the equality has no second
+    joint). A clip retargeted on a different model carries *that* model's coupler
+    values: the ``MyoFullBody`` cache predates myo_sim 0.2.3, whose
+    ``knee_angle_rotation3_l`` polycoef has the opposite sign of the one in
+    ``osl_fullbody``, so copied values miss by up to 0.47 rad. Recomputing the
+    couplers from the target model's own polynomials fixes that, and fills couplers
+    the source never had (``myolegs``' right knee from the OSL_KA cache).
+    """
+    qpos = np.array(qpos, dtype=np.float64)
+    eqs = [
+        e for e in range(model.neq)
+        if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT and model.eq_active0[e]
+    ]
+    driven = {int(model.eq_obj1id[e]) for e in eqs}
+    for e in eqs:
+        j1, j2 = int(model.eq_obj1id[e]), int(model.eq_obj2id[e])
+        if j2 in driven:  # a single pass is only exact when no driver is itself driven
+            raise ValueError(
+                f"chained joint equality: {model.joint(j2).name} drives "
+                f"{model.joint(j1).name} but is itself driven."
+            )
+        a1 = model.jnt_qposadr[j1]
+        c = model.eq_data[e, :5]
+        if j2 < 0:
+            qpos[:, a1] = model.qpos0[a1] + c[0]
+            continue
+        a2 = model.jnt_qposadr[j2]
+        x = qpos[:, a2] - model.qpos0[a2]
+        qpos[:, a1] = model.qpos0[a1] + c[0] + x * (c[1] + x * (c[2] + x * (c[3] + x * c[4])))
+    return qpos

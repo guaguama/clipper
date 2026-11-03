@@ -151,3 +151,50 @@ def frame_blend(
     index_1 = np.minimum(index_0 + 1, n_in - 1)
     blend = scaled - index_0
     return index_0, index_1, blend, times.shape[0]
+
+
+def yaw_quat(yaw: np.ndarray | float) -> np.ndarray:
+    """wxyz quaternion(s) of a pure rotation by `yaw` (rad) about world z."""
+    half = 0.5 * np.asarray(yaw, dtype=np.float64)
+    zeros = np.zeros_like(half)
+    return np.stack([np.cos(half), zeros, zeros, np.sin(half)], axis=-1)
+
+
+def rot_z(yaw: float) -> np.ndarray:
+    """3x3 rotation matrix about world z."""
+    c, s = np.cos(yaw), np.sin(yaw)
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def heading_from_quat(q: np.ndarray, fwd_axis_body: tuple[float, float, float]) -> np.ndarray:
+    """Ground azimuth (rad) of the body axis `fwd_axis_body` under wxyz `q` (..., 4).
+
+    Port of mj-nlp ``utils/math_utils.heading_from_quat``: a world Rz(a) applied to
+    ``q`` advances it by exactly ``a``, which is what makes it a planar heading. The
+    axis must be (near) horizontal in the body's usual pose; osl_fullbody's is -y.
+    """
+    q = np.asarray(q, dtype=np.float64)
+    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+    ax, ay, az = (float(v) for v in fwd_axis_body)
+    # first two rows of the rotation matrix, applied to the axis
+    bx = (
+        (1 - 2 * (y * y + z * z)) * ax + 2 * (x * y - w * z) * ay + 2 * (x * z + w * y) * az
+    )
+    by = (
+        2 * (x * y + w * z) * ax + (1 - 2 * (x * x + z * z)) * ay + 2 * (y * z - w * x) * az
+    )
+    return np.arctan2(by, bx)
+
+
+def mean_heading(psi: np.ndarray, psi_end: float) -> float:
+    """Stride-mean heading (rad) of a periodic heading track.
+
+    ``psi`` is the (unwrapped) heading at frames 0..N-1 of one stride and ``psi_end``
+    the heading of the closing frame N (= frame 0 of the next stride). Frame 0's
+    heading plus the mean yaw sway about the straight ramp frame 0 -> frame N, as in
+    mj-nlp ``mean_heading`` (the frame mj-nlp's commanded twist is expressed in).
+    """
+    psi = np.asarray(psi, dtype=np.float64)
+    n = psi.shape[0]
+    ramp = psi[0] + (psi_end - psi[0]) * np.arange(n) / n
+    return float(psi[0] + (psi - ramp).mean())

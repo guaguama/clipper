@@ -39,6 +39,11 @@ bodies — verified against a real unitree_rl_mjlab artifact, and the ``g1_23dof
 scene deliberately pads 6 dummy bodies to reach the same 30; mjlab's own ``g1.xml``
 was checked to carry the same 30 in the same order. Every other model has no scene variant and uses the model exactly
 as clipper loads it, whose body list was verified to equal its robot XML's.
+
+**Gait libraries are not written here.** sesteban's twist-command tasks loop each
+clip and need a ``twist`` label, exact-period frame counts, seam-free velocities and
+a shared phase. ``clipper.gait_library`` (``scripts/convert_gait_library.py``) builds
+those and saves them through ``save_npz`` below, so the schema stays identical.
 """
 
 from __future__ import annotations
@@ -97,6 +102,7 @@ def write(
         name: Output file stem; defaults to ``traj.name``.
         overwrite: If False, raise when the target file already exists.
     """
+
     model_id = traj.model
     names = joint_names(model_id)
     dof = len(names)
@@ -175,14 +181,44 @@ def write(
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} exists (pass overwrite=True to replace).")
 
-    np.savez(
+    save_npz(
         path,
-        fps=np.array([out_fps], dtype=np.float64),
+        out_fps,
         joint_pos=joint_pos,
         joint_vel=joint_vel,
-        body_pos_w=body_pos_w.astype(np.float32),
-        body_quat_w=body_quat_w.astype(np.float32),
-        body_lin_vel_w=body_lin_vel_w.astype(np.float32),
-        body_ang_vel_w=body_ang_vel_w.astype(np.float32),
+        body_pos_w=body_pos_w,
+        body_quat_w=body_quat_w,
+        body_lin_vel_w=body_lin_vel_w,
+        body_ang_vel_w=body_ang_vel_w,
     )
     return path
+
+
+def save_npz(
+    path: Path,
+    fps: float,
+    *,
+    joint_pos: np.ndarray,
+    joint_vel: np.ndarray,
+    body_pos_w: np.ndarray,
+    body_quat_w: np.ndarray,
+    body_lin_vel_w: np.ndarray,
+    body_ang_vel_w: np.ndarray,
+    extra: dict[str, np.ndarray] | None = None,
+) -> None:
+    """Save the six mjlab motion arrays (float32) + ``fps`` + any ``extra`` keys.
+
+    Shared with `clipper.gait_library`, which computes the same arrays its own way
+    (periodic resample, solver velocities) but must emit the identical schema.
+    """
+    np.savez(
+        path,
+        fps=np.array([fps], dtype=np.float64),
+        joint_pos=np.asarray(joint_pos, dtype=np.float32),
+        joint_vel=np.asarray(joint_vel, dtype=np.float32),
+        body_pos_w=np.asarray(body_pos_w, dtype=np.float32),
+        body_quat_w=np.asarray(body_quat_w, dtype=np.float32),
+        body_lin_vel_w=np.asarray(body_lin_vel_w, dtype=np.float32),
+        body_ang_vel_w=np.asarray(body_ang_vel_w, dtype=np.float32),
+        **(extra or {}),
+    )

@@ -11,6 +11,8 @@ folder. This one parses mj-nlp's native task output, whose schema is (see
 - ``state`` ``(N+1, nq+nv)`` float64 — full state per frame, ``[qpos | qvel]``.
 - ``time`` ``(N+1,)`` — absolute time stamps (s); fps is its sample rate
   (``1 / median(diff(time))``, typically 100 Hz).
+- ``twist`` ``(3,)`` (gait-library nodes only) — the commanded ``[vx, vy, wz]`` label,
+  kept on ``Trajectory.twist`` (not ``twist_sim``/``native_twist``, which are measured).
 - also ``input``, ``model``, ``spline_type``, ``reference`` — unused here.
 
 Only ``state`` is loaded (the solved rollout), not ``reference`` (the tracking
@@ -127,4 +129,5 @@ def load(
         model=model_id,
         source=source,
         name=path.stem,
+        twist=data["twist"] if "twist" in data else None,
     )

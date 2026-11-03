@@ -25,6 +25,11 @@ Some models need per-model joint renames before the by-name mapping, configured 
   ``OSL_KA_L1_osl_knee_angle_r`` / ``OSL_KA_L1_osl_ankle_angle_r`` so the prosthetic
   leg follows the motion, and ``elbow_flex_*`` onto the export's ``elbow_flexion_*``.
 
+After the by-name mapping, every coupled joint (the knee couplers) is recomputed from
+the target model's own joint equalities (``qpos.enforce_joint_equalities``): the
+caches were retargeted on older models whose left-knee ``rotation3`` polynomial has
+the opposite sign of ``osl_fullbody``'s.
+
 See [[clipper-data-sources]].
 """
 
@@ -36,7 +41,7 @@ import mujoco
 import numpy as np
 
 from .. import constants
-from ..qpos import build_qpos
+from ..qpos import build_qpos, enforce_joint_equalities
 from ..trajectory import Trajectory
 
 
@@ -82,6 +87,8 @@ def load(
     }
 
     qpos = build_qpos(model, base_pos, base_quat_wxyz, joint_angles)
+    # Knee couplers copied from the cache follow the cache's model, not this one.
+    qpos = enforce_joint_equalities(model, qpos)
 
     if fps is None:
         freq = data["frequency"] if "frequency" in data.files else None

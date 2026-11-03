@@ -156,6 +156,29 @@ BIO_ANKLE_JOINT: dict[str, str] = {
     "osl_fullbody": "ankle_angle_l",
 }
 
+# Foot bodies per model for crop's `--auto-foot-contact` (`foot_contact.py`) and the
+# gait-library phase profile / idle clip (`gait_library.py`), keyed by
+# the ankle table that rotates that foot. Their non-mesh collision geoms are the
+# contact surface: the OSL foot is its 3 capsules (its foot mesh is ignored), the
+# intact foot is calcaneus capsules + ellipsoid plus the toe capsules.
+FOOT_CONTACT_BODIES: dict[str, dict[str, tuple[str, ...]]] = {
+    "osl_fullbody": {
+        "ankle": ("OSL_KA_L1_osl_foot_assembly",),  # RIGHT_ANKLE_JOINT (OSL)
+        "bioankle": ("calcn_l", "toes_l"),  # BIO_ANKLE_JOINT
+    },
+}
+
+# Anatomical forward axis in the free-joint (root) BODY frame, for headings and
+# body twists (`gait_library.py`). osl_fullbody walks along body -y: mj-nlp's
+# `osl_gait/config.py` `fwd_axis_body` verifies it from the heel->toe azimuth at
+# qpos0, and every gait-library stride travels within ~4 deg of it. The G1 pelvis
+# faces +x. Using +x on osl_fullbody would put "forward" 90 deg off.
+FWD_AXIS_BODY: dict[str, tuple[float, float, float]] = {
+    "osl_fullbody": (0.0, -1.0, 0.0),
+    "g1_29dof": (1.0, 0.0, 0.0),
+    "g1_23dof": (1.0, 0.0, 0.0),
+}
+
 # --------------------------------------------------------------------------- #
 # Trajectory sources (clipper `--source` values; no autodetection).
 # --------------------------------------------------------------------------- #

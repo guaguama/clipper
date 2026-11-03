@@ -10,7 +10,7 @@ a compatible skeleton (missing DOFs stay at 0).
 **Entry points** (`scripts/`):
 
 - `visualize_trajectory.py` — MuJoCo replay, or interactive slider scrubbing.
-- `crop_trajectory.py` — crop → height/ankle offset → optional standing-pose pad →
+- `crop_trajectory.py` — crop → height/ankle offset (manual or auto) → optional standing-pose pad →
   write, with optional preview and mp4 export.
 
 ## Setup
@@ -101,10 +101,12 @@ matching source id, so a converted clip can be re-viewed or re-cropped.
 | `--height-offset` | global z added to every frame (m) |
 | `--ankle-offset` | global right-ankle (OSL) offset (deg); OSL models only, see [Models](#models) |
 | `--bio-ankle-offset` | global biological (left) ankle offset (deg); OSL models only |
+| `--auto-foot-contact` | estimate and apply both ankle offsets + the height offset so the feet sit flat on the ground in stance; replaces the three manual flags; `osl_fullbody` only, see [Ankle corrections](#models) |
 | `--pad-standing` | prepend/append a standing pose with a blended transition |
 | `--pre-static`/`--pre-blend`/`--post-static`/`--post-blend` | pad durations (s); default 1.0 / 0.5 |
 | `--output-fps` | resample (lerp + slerp); default keeps the source rate, **except `--format mjlab`, which defaults to 50 Hz** |
 | `--name` | output file stem (default derived from source + crop range) |
+| `--out-dir` | output directory (default `outputs/<format>/<model>/`) |
 | `--visualize` / `--save-video` | replay the final clip / render it to an mp4 |
 
 ### Scrub mode
@@ -178,6 +180,84 @@ Resampling reproduces upstream's interpolation grid, which **drops the last fram
 consume an MSK clip yet** — it has no OSL `Entity`, and its stock converter is G1-only;
 that import is mjlab-side work.
 
+#### Gait libraries (sesteban twist tasks)
+
+sesteban's mjlab fork trains its twist-command tasks (`walk_unicycle`, `jog_unicycle`,
+`crawling_*`) on a **folder** of these NPZs. Its `LibraryMotionLoader` needs a `twist`
+`(3,)` = `[vx, vy, wz]` key in every clip, and it globs every `*.npz` in the folder.
+
+**Gait libraries always go through `scripts/convert_gait_library.py`**, never through
+`crop_trajectory.py` one node at a time. The task loops each clip and switches between
+clips at the same phase. A plain per-clip mjlab conversion would break that in three
+ways:
+
+- The loop would be a half frame long whenever 50·T is not an integer.
+- Velocities would be one-sided finite differences at the loop point, about 1.3 rad/s off.
+- Nodes from different source clips would not be phase-aligned. The multi-clip walk
+  library's four bands sit at −35 / −7 / 0 / +38 % of a stride.
+
+The converter fixes all three:
+
+- it resamples each stride to exactly round(50·T) frames, a time warp κ ≤ 0.8 % that is
+  applied to the velocities too;
+- it takes velocities from the solver's own `qvel`;
+- it aligns every node on normalised phase, by cross-correlating foot heights, and
+  re-bases frame 0 to the origin with the stride-mean heading along +x. The forward axis
+  is model-specific: `constants.FWD_AXIS_BODY`, which is −y on osl_fullbody.
+
+It checks the seam at the loop point and can add a standing clip:
+
+```bash
+uv run python scripts/convert_gait_library.py \
+  ../mj-nlp/examples/osl_mimic/clip_search/gait_library_walk_fwd_multi \
+  --model osl_fullbody --idle   # -> outputs/mjlab/osl_fullbody/<library name>/
+```
+
+Each clip also stores `twist_effective` (κ·twist), `stride_T`, `n_frames`,
+`phase_shift` and `source`. Pass `--align-to <converted npz>` to put a later library,
+such as arcs, on the same phase 0.
+
+Strides differ in length, so the output is **ragged** (47–82 frames on the walk
+library, plus the 50-frame idle). Set `allow_ragged=True` on the consuming
+`LibraryMotionCommand` cfg. Only `osl_fullbody` is supported for now: a model needs
+entries in both `FWD_AXIS_BODY` and `FOOT_CONTACT_BODIES`.
+
+### Visualize a gait library
+
+`scripts/visualize_gait_library.py` plays a library live, driven by a twist command
+`[vx, vy, wz]`. The command comes from sliders in a side window, or from an Xbox pad
+with `--joystick`. The viewer does what sesteban's `LibraryMotionCommand` does:
+
+- the command snaps to the nearest node, with each axis weighted by 1/span²;
+- the clip loops, chaining each stride onto the last so the model keeps travelling;
+- a switch keeps the normalised phase and crossfades over 0.4 s (`--blend`).
+
+Slider and stick ends are the library's own extremes, widened to include 0. An axis the
+library never varies is fixed at 0.
+
+- Keys (slider window): `up`/`down` set vx, `left`/`right` set wz, `space` stops.
+- Joystick (twin-stick): left stick Y = vx, right stick X = wz, A = stop, B = back to
+  sliders.
+
+```bash
+# converted folders (need the stride_se2 key: re-convert anything older)
+uv run python scripts/visualize_gait_library.py \
+  outputs/mjlab/osl_fullbody/gait_library_walk_fwd_multi \
+  --source mjlab --model osl_fullbody --joystick
+
+# raw mj-nlp folders, converted and phase-aligned together in memory (a few s)
+uv run python scripts/visualize_gait_library.py \
+  ../mj-nlp/examples/osl_mimic/clip_search/gait_library_walk_fwd_multi \
+  ../mj-nlp/examples/osl_mimic/turn_search/gait_library_walk_arc_multi \
+  ../mj-nlp/examples/osl_mimic/turn_search/gait_library_walk_turn_multi \
+  --source mj_nlp_out --model osl_fullbody --idle
+```
+
+When folders are combined, a repeated twist keeps the first copy. The arc library
+re-copies the forward wz=0 row. A converted folder that is off the reference phase by
+more than 2 % is reported: convert later libraries with a shared `--align-to`.
+`--treadmill` pins the root at the origin instead of travelling.
+
 ## Models
 
 `--model` is required. Any source can be played on any model with a compatible
@@ -196,8 +276,14 @@ musclemimic's default), which is what makes their `nq` match the caches.
 | `osl_fullbody` | myoassist full-body + OSL knee-ankle export, lengthened shank | 80 | `MyoFullBody` cache ² |
 
 ¹ `myolegs` has no clips of its own; the OSL_KA cache's prosthetic knee/ankle are
-renamed back to the biological joints, the `socket_*` DOFs dropped, and the right-knee
-couplers left at 0 (a minor visual approximation).
+renamed back to the biological joints and the `socket_*` DOFs dropped.
+
+**Knee couplers.** The coupled joints (knee `translation*`/`rotation*`/`beta_*`, shoulder
+girdle) of a `musclemimic` clip are recomputed from the target model's own joint
+equalities rather than copied from the cache. The caches predate myo_sim 0.2.3, whose
+left-knee `rotation3` polynomial has the opposite sign of `osl_fullbody`'s, so copied
+values were off by up to 0.47 rad. This also fills `myolegs`' right-knee couplers,
+which the OSL_KA cache lacks.
 
 ² The NeuMoVe Lab export built with myo_sim 0.2.3, with the OSL tibial pylon lengthened
 22.5 mm so the prosthetic leg matches the intact one (provenance and edits in
@@ -213,6 +299,27 @@ them in with the scrub window's R-ankle (OSL) slider (`z` / `c`) and L-ankle (bi
 slider (`v` / `b`), then bake them with `--ankle-offset <deg>` and
 `--bio-ankle-offset <deg>` (clip suffixes `_ankle±N` / `_bioankle±N`). Applies to
 `osl_fullbody` only; other models have no sliders and the flags error on them.
+
+`--auto-foot-contact` finds all three offsets per clip (ankles to 0.1°, z to 0.1 mm)
+and prints a contact report. Only the non-mesh collision geoms count (the OSL foot is
+its 3 capsules, its foot mesh is ignored; table `constants.FOOT_CONTACT_BODIES`).
+Frames where a foot is *planted* (lowest point within 20 mm of its floor, moving
+< 0.15 m/s) set the targets. Each ankle offset makes the median forefoot-minus-heel
+height over those frames zero (a flat foot). The z offset then puts the median planted
+lowest point on the floor (median contact: some stance frames sink a few mm, others
+float). On the hand-tuned KIT/7 `WalkingStraightForwards03` (−7° / −5°) it finds
+−6.7° / −4.8°. A constant ankle offset also tilts the toes down at push-off, so clips
+whose push-off already clips the floor clip deeper (up to ~2 cm on KIT 3/8/11/12);
+the report warns about it but z is not traded off for it. Batch over a cache:
+
+```bash
+for f in ~/.musclemimic/caches/AMASS/MyoFullBody/gmr/KIT/*/*[Ww]alk*[Ff]orward*.npz; do
+  subj=$(basename "$(dirname "$f")")   # stems repeat across subjects
+  uv run python scripts/crop_trajectory.py --path "$f" --source musclemimic \
+    --model osl_fullbody --format mj_nlp --auto-foot-contact \
+    --out-dir outputs/mj_nlp/osl_fullbody/KIT$subj
+done
+```
 
 ## Assets
 

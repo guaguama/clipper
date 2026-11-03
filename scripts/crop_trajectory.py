@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """Crop / height-adjust / pad a reference trajectory and write a target NPZ.
 
-Pipeline: load -> crop -> height-offset -> (optional) standing-pose pad -> write.
+Pipeline: load -> crop -> height/ankle offsets (manual or --auto-foot-contact)
+-> (optional) standing-pose pad -> write.
 Frame indices are 0-based inclusive, matching the scrub viewer's `f` marker.
 
 Examples:
@@ -15,6 +16,9 @@ Examples:
         --path <bones_seed.csv> --source bones_seed --model g1_29dof \
         --start 50 --stop 600 --height-offset 0.03 --pad-standing --output-fps 50 \
         --format mj_nlp --visualize
+
+Gait libraries (mj-nlp periodic strides) go through `convert_gait_library.py`, not
+through this script one node at a time.
 """
 
 from __future__ import annotations
@@ -59,6 +63,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "frame (flattens the intact foot). Matches scrub's L-ankle (bio) slider.",
     )
     p.add_argument(
+        "--auto-foot-contact", action="store_true",
+        help="Estimate the OSL ankle, bio ankle and height offsets that put both "
+        "feet flat on the ground in stance (median contact), and apply them. "
+        "Replaces --ankle-offset/--bio-ankle-offset/--height-offset.",
+    )
+    p.add_argument(
         "--pad-standing", action="store_true",
         help="Prepend/append a standing pose with a blended transition.",
     )
@@ -76,6 +86,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Output format.",
     )
     p.add_argument("--name", type=str, default=None, help="Output file stem (default derived).")
+    p.add_argument(
+        "--out-dir", type=Path, default=None,
+        help="Output directory (default: outputs/<format>/<model>/).",
+    )
     p.add_argument("--visualize", action="store_true", help="Replay the final clip first.")
     p.add_argument("--save-video", action="store_true", help="Render the final clip to an mp4.")
     return p.parse_args(argv)
@@ -127,6 +141,24 @@ def main(argv: list[str] | None = None) -> None:
     if not args.path.exists():
         raise SystemExit(f"Trajectory file not found: {args.path}")
 
+    if args.auto_foot_contact:
+        manual = [
+            flag for flag, v in (
+                ("--height-offset", args.height_offset),
+                ("--ankle-offset", args.ankle_offset),
+                ("--bio-ankle-offset", args.bio_ankle_offset),
+            ) if v != 0.0
+        ]
+        if manual:
+            raise SystemExit(
+                f"--auto-foot-contact computes its own offsets; drop {', '.join(manual)}."
+            )
+        if args.model not in constants.FOOT_CONTACT_BODIES:
+            raise SystemExit(
+                f"--auto-foot-contact is not supported for model {args.model!r} "
+                "(no constants.FOOT_CONTACT_BODIES entry)."
+            )
+
     model = load_model(args.model, floor=False)
     loader = get_loader(args.source)
     traj = loader(args.path, model, args.model, source=args.source)
@@ -150,6 +182,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.bio_ankle_offset != 0.0:
         adr = _ankle_adr(constants.BIO_ANKLE_JOINT, "--bio-ankle-offset", "biological-ankle")
         traj = edits.apply_ankle_offset(traj, adr, args.bio_ankle_offset, tag="bioankle")
+    if args.auto_foot_contact:
+        from clipper.foot_contact import fit_foot_contact, format_report
+
+        fit = fit_foot_contact(model, traj)
+        print(format_report(fit))
+        for foot in fit.feet:
+            traj = edits.apply_ankle_offset(traj, foot.qpos_adr, foot.offset_deg, tag=foot.tag)
+        traj = edits.apply_height_offset(traj, fit.dz)
     if args.pad_standing:
         traj = edits.pad_standing(
             traj, args.pre_static, args.pre_blend, args.post_static, args.post_blend
@@ -165,8 +205,12 @@ def main(argv: list[str] | None = None) -> None:
 
         replay(load_model(args.model), traj)
 
+    write_kwargs: dict = {"output_fps": args.output_fps, "name": args.name}
+    if args.out_dir is not None:
+        write_kwargs["out_dir"] = args.out_dir
+
     writer = get_writer(args.format)
-    out = writer(traj, output_fps=args.output_fps, name=args.name)
+    out = writer(traj, **write_kwargs)
     print(f"Wrote {args.format} -> {out}")
 
     if args.save_video:

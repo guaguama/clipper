@@ -11,6 +11,9 @@ Schema (see ``writers/mjlab.py``):
 - ``body_pos_w`` ``(N, B, 3)`` / ``body_quat_w`` ``(N, B, 4)`` — world body pose
   (quat wxyz); body 0 is the root, so its pose IS the free-joint base.
 - ``fps`` ``(1,)`` — frame rate.
+- ``twist`` ``(3,)`` (gait-library clips from ``convert_gait_library.py``) — the
+  ``[vx, vy, wz]`` label,
+  kept on ``Trajectory.twist`` so it survives a round trip.
 
 The NPZ does not record which model wrote it, so the joint order is resolved from the
 DOF count, **the target model's own first**: DOF counts can collide across model
@@ -115,4 +118,5 @@ def load(
         model=model_id,
         source=source,
         name=path.stem,
+        twist=data["twist"] if "twist" in data else None,
     )
