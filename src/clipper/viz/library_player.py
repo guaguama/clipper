@@ -24,12 +24,16 @@ reference the policy actually tracks:
 
 ``LibraryClip`` holds a clip in the *model's* qpos layout, so it is source-agnostic.
 ``load_library`` builds clips from converted mjlab folders (``convert_gait_library.py``
-output, which must carry ``stride_se2``) or from raw mj-nlp folders (converted and
-phase-aligned in memory with ``clipper.gait_library``).
+output, which must carry ``stride_se2``) or from mj-nlp release folders (converted in
+memory with ``clipper.gait_library.convert_release``, the converter's own pipeline). Every
+clip's frame 0 is the OSL touchdown (the gait library scheme), so clips from any number
+of folders share phase 0; a converted folder whose library.json says otherwise (or that
+has none) is reported at load.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,7 +45,6 @@ from ..model import joint_names
 from ..qpos import build_qpos
 
 AXES = ("vx", "vy", "wz")
-PHASE_WARN = 0.02  # warn when a clip's phase residual vs the reference exceeds this
 
 
 # --------------------------------------------------------------------------- #
@@ -116,7 +119,7 @@ def _qpos_from_mjlab_arrays(model, model_id, body_pos_w, body_quat_w, joint_pos)
     )
 
 
-def _load_mjlab_dir(d: Path, model, model_id: str) -> list[tuple[LibraryClip, np.ndarray]]:
+def _load_mjlab_dir(d: Path, model, model_id: str) -> list[LibraryClip]:
     out = []
     for f in sorted(d.glob("*.npz")):
         data = np.load(f)
@@ -139,7 +142,7 @@ def _load_mjlab_dir(d: Path, model, model_id: str) -> list[tuple[LibraryClip, np
             stride=np.asarray(data["stride_se2"], np.float64),
             source=str(f),
         )
-        out.append((clip, np.asarray(data["body_pos_w"], np.float64)))
+        out.append(clip)
     return out
 
 
@@ -174,80 +177,79 @@ def load_library(
     model_id: str,
     fps: float = constants.MJLAB_MOTION_FPS,
     idle: bool = False,
-    glob: str = "*_vx*.npz",
+    glob: str | None = None,
 ) -> list[LibraryClip]:
     """Load one or more library folders as `LibraryClip`s (duplicates by twist dropped).
 
     Args:
         source: ``"mjlab"`` for converted folders (``convert_gait_library.py``), or
-            ``"mj_nlp_out"`` for raw mj-nlp folders, converted and phase-aligned in
-            memory across *all* folders.
-        idle: mj_nlp_out only — add the model's standing clip (twist 0).
-        glob: mj_nlp_out only — node files per folder (``seed_*`` always skipped).
+            ``"mj_nlp_out"`` for mj-nlp release folders (or legacy working folders),
+            converted in memory exactly as ``convert_gait_library.py`` would: each node
+            starts at the OSL touchdown, so folders combine without a shared reference.
+        idle: mj_nlp_out only — add the model's ``stand`` keyframe as the zero-twist
+            node when no folder has an ``idle.npz``.
+        glob: mj_nlp_out legacy folders only (no ``library.json``) — node files.
     """
     model, _ = gl._models(model_id)
-    feet = gl.foot_body_indices(model_id)
 
     if source == "mjlab":
-        pairs = []
+        clips = []
         for d in dirs:
             got = _load_mjlab_dir(Path(d), model, model_id)
-            print(f"  {d}: {len(got)} clips")
-            pairs.extend(got)
-        pairs = _dedupe(pairs, lambda p: p[0].twist, lambda p: p[0].name)
-        _phase_check([c for c, _ in pairs], [bp for _, bp in pairs], feet)
-        clips = [c for c, _ in pairs]
+            print(f"  {d}: {len(got)} clips{_manifest_note(Path(d))}")
+            clips.extend(got)
+        clips = _dedupe(clips, lambda c: c.twist, lambda c: c.name)
+        if idle:
+            print("  note: --idle only applies to mj_nlp_out; mjlab folders carry their own idle.npz")
     elif source == "mj_nlp_out":
-        files = []
+        clips = []
         for d in dirs:
-            got = sorted(f for f in Path(d).glob(glob) if not f.name.startswith("seed_"))
-            print(f"  {d}: {len(got)} nodes")
-            files.extend(got)
-        raw = []
-        for i, f in enumerate(files):
-            print(f"\r  converting {i + 1}/{len(files)}", end="", flush=True)
-            raw.append(gl.load_node(f, model_id, fps))
-        print()
-        raw = _dedupe(raw, lambda c: c.twist, lambda c: c.name)
-        if raw:
-            print(f"  phase reference: {raw[gl.reference_index(raw)].name}")
-            gl.align_library(raw, model_id)
-        for c in raw:
-            gl.rebase(c, model_id)
-        if idle and not any(np.all(np.abs(c.twist) < 1e-6) for c in raw):
-            raw.append(gl.idle_clip(model_id, int(round(fps)))[0])
-        _phase_check(raw, [c.body_pos_w for c in raw], feet)
-        clips = [_from_gl_clip(c, model, model_id) for c in raw]
+            rel = gl.read_release(Path(d), glob)
+            conv = gl.convert_release(rel, model_id, fps, phase="touchdown")
+            kind = "release" if rel.manifest is not None else "legacy folder"
+            print(f"  {d}: {kind}, {len(conv.clips)} nodes" + (" + idle.npz" if conv.idle else ""))
+            for w in conv.warnings:
+                print(f"    warning: {w}")
+            for r in conv.rows:
+                if any(v > gl.SEAM_TOL for v in r["seam"].values()):
+                    print(f"    WARNING: {r['name']} fails the seam check (convert would refuse it)")
+            raw = conv.clips + ([conv.idle] if conv.idle is not None else [])
+            clips.extend(_from_gl_clip(c, model, model_id) for c in raw)
+        clips = _dedupe(clips, lambda c: c.twist, lambda c: c.name)
+        if idle and not any(c.is_idle for c in clips):
+            clips.append(_from_gl_clip(gl.idle_clip(model_id, int(round(fps)))[0], model, model_id))
     else:
         raise ValueError(f"unsupported library source {source!r}")
 
     if not clips:
         raise ValueError(f"no clips found in {[str(d) for d in dirs]}")
-    if idle and source == "mjlab":
-        print("  note: --idle only applies to mj_nlp_out; mjlab folders carry their own idle.npz")
     return clips
 
 
-def _phase_check(clips, body_pos, feet) -> None:
-    """Warn on clips whose foot-height phase is off the library reference."""
-    moving = [i for i, c in enumerate(clips) if not np.all(np.abs(c.twist) < 1e-6)]
-    if len(moving) < 2:
-        return
-    sub = [clips[i] for i in moving]
-    ref_i = moving[gl.reference_index(sub)]
-    ref = gl.phase_profile(body_pos[ref_i], feet)
-    bad = []
-    for i in moving:
-        lag = gl.phase_lag(gl.phase_profile(body_pos[i], feet), ref)
-        if abs(lag) > PHASE_WARN:
-            bad.append(f"{clips[i].name} ({100 * lag:+.1f} %)")
-    if bad:
-        print(
-            f"  WARNING: {len(bad)} clips are > {100 * PHASE_WARN:.0f} % of a stride off the "
-            f"phase of {clips[ref_i].name}; clip switches will jump. Convert the folders "
-            "with a shared --align-to. Offenders: " + ", ".join(bad[:8])
-            + (" ..." if len(bad) > 8 else "")
+def _manifest_note(d: Path) -> str:
+    """Describe a converted folder from its library.json; warn if not touchdown-phased.
+
+    The phase is read from clipper's block rather than re-detected: on 50 Hz frames a
+    short lift during stance can shift the detected touchdown by a few frames.
+    """
+    f = d / gl.MANIFEST
+    if not f.exists():
+        return (
+            "\n  WARNING: no library.json, so converted before the release scheme: frame 0 "
+            "is not the OSL touchdown. Re-convert with scripts/convert_gait_library.py."
         )
+    try:
+        doc = json.loads(f.read_text())
+    except ValueError:
+        return " (unreadable library.json)"
+    block = doc.get("clipper") or {}
+    note = f" (release {doc.get('release')}, clipper {block.get('git_sha')})"
+    if block.get("phase") != "touchdown":
+        note += (
+            f"\n  WARNING: converted with phase {block.get('phase')!r}, not the OSL "
+            "touchdown; it will not share phase 0 with other releases."
+        )
+    return note
 
 
 # --------------------------------------------------------------------------- #

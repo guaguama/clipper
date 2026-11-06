@@ -168,6 +168,13 @@ FOOT_CONTACT_BODIES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+# The foot (a FOOT_CONTACT_BODIES key) whose touchdown is phase 0 of every gait-library
+# clip (`gait_library.touchdown_phase`, the gait library scheme's "frame 0 is the OSL
+# touchdown"). On osl_fullbody that is the prosthesis, "ankle".
+TOUCHDOWN_FOOT: dict[str, str] = {
+    "osl_fullbody": "ankle",
+}
+
 # Anatomical forward axis in the free-joint (root) BODY frame, for headings and
 # body twists (`gait_library.py`). osl_fullbody walks along body -y: mj-nlp's
 # `osl_gait/config.py` `fwd_axis_body` verifies it from the heel->toe azimuth at

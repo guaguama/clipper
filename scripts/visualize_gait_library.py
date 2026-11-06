@@ -5,20 +5,25 @@ The command [vx, vy, wz] snaps to the nearest library node, with each axis weigh
 1/span^2. The clip loops continuously, with each stride chained onto the last, and
 switches at the same normalised phase with a crossfade. This mirrors what sesteban's
 `LibraryMotionCommand` feeds a policy. The slider and stick ranges are the library's
-own extremes (widened to include 0). See `clipper/viz/library_player.py` and
-`clipper/viz/library_view.py`.
+own extremes (widened to include 0). Every clip starts at the OSL touchdown (the gait
+library scheme), so any set of folders shares phase 0. See
+`clipper/viz/library_player.py` and `clipper/viz/library_view.py`.
 
 Examples:
-    # The converted forward-walk library (convert_gait_library.py output)
+    # A converted release (convert_gait_library.py output)
     python scripts/visualize_gait_library.py \
-        outputs/mjlab/osl_fullbody/gait_library_walk_fwd_multi \
+        outputs/mjlab/osl_fullbody/kit_walk_fwd_v001 \
         --source mjlab --model osl_fullbody --joystick
 
-    # Raw mj-nlp libraries, converted and phase-aligned in memory (forward + arcs)
+    # mj-nlp release folders, converted in memory (several combine freely)
     python scripts/visualize_gait_library.py \
-        ../mj-nlp/examples/osl_mimic/clip_search/gait_library_walk_fwd_multi \
-        ../mj-nlp/examples/osl_mimic/turn_search/gait_library_walk_arc_multi \
-        --source mj_nlp_out --model osl_fullbody --idle
+        ../mj-nlp/examples/osl_mimic/libraries/kit_walk_fwd_v001 \
+        --source mj_nlp_out --model osl_fullbody
+
+    # A single node: its folder plus --glob (legacy folders only), standing idle added
+    python scripts/visualize_gait_library.py ../mj-nlp/examples/osl_mimic/bones_search/seeds \
+        --source mj_nlp_out --model osl_fullbody --idle \
+        --glob 'fwd_fast__walk_ff_loop_180_R_normal_pace_001__A444.npz'
 """
 
 from __future__ import annotations
@@ -32,7 +37,11 @@ from clipper.viz.joystick import Joystick
 from clipper.viz.library_player import LibraryPlayer, load_library
 from clipper.viz.library_view import view_library
 
-SUPPORTED_MODELS = sorted(set(constants.FWD_AXIS_BODY) & set(constants.FOOT_CONTACT_BODIES))
+SUPPORTED_MODELS = sorted(
+    set(constants.FWD_AXIS_BODY)
+    & set(constants.FOOT_CONTACT_BODIES)
+    & set(constants.TOUCHDOWN_FOOT)
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -46,8 +55,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--source", required=True, choices=("mjlab", "mj_nlp_out"),
-        help="mjlab: converted folders (convert_gait_library.py). mj_nlp_out: raw "
-        "mj-nlp folders, converted + phase-aligned in memory.",
+        help="mjlab: converted folders (convert_gait_library.py). mj_nlp_out: mj-nlp "
+        "release folders (or legacy working folders), converted in memory the same way.",
     )
     p.add_argument("--model", required=True, choices=SUPPORTED_MODELS)
     p.add_argument(
@@ -65,10 +74,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--idle", action="store_true",
-        help="mj_nlp_out only: add the model's standing clip as the zero-twist node.",
+        help="mj_nlp_out only: add the model's `stand` keyframe as the zero-twist node "
+        "when no folder has an idle.npz (releases carry their own).",
     )
     p.add_argument(
-        "--glob", default="*_vx*.npz", help="mj_nlp_out only: node files per folder.",
+        "--glob", default=None,
+        help="mj_nlp_out legacy folders only (no library.json): node files per folder. "
+        "Default '*_vx*.npz'.",
     )
     p.add_argument(
         "--joystick", nargs="?", const="/dev/input/js0", default=None, metavar="DEV",

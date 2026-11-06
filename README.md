@@ -193,34 +193,91 @@ ways:
 
 - The loop would be a half frame long whenever 50·T is not an integer.
 - Velocities would be one-sided finite differences at the loop point, about 1.3 rad/s off.
-- Nodes from different source clips would not be phase-aligned. The multi-clip walk
+- Nodes from different source clips would not share a phase 0. The multi-clip walk
   library's four bands sit at −35 / −7 / 0 / +38 % of a stride.
 
-The converter fixes all three:
+#### Release folders
 
-- it resamples each stride to exactly round(50·T) frames, a time warp κ ≤ 0.8 % that is
-  applied to the velocities too;
-- it takes velocities from the solver's own `qvel`;
-- it aligns every node on normalised phase, by cross-correlating foot heights, and
-  re-bases frame 0 to the origin with the stride-mean heading along +x. The forward axis
-  is model-specific: `constants.FWD_AXIS_BODY`, which is −y on osl_fullbody.
+Libraries move between repos as **releases**: mj-nlp writes one flat folder, clipper
+converts it into a folder with the same name and the same file names, and mjlab trains
+on that folder unchanged.
 
-It checks the seam at the loop point and can add a standing clip:
+```
+<release>/                                   e.g. kit_walk_fwd_v001 (names end in _vNNN)
+  library.json                               manifest (mj-nlp's; clipper adds a block)
+  idle.npz                                   standing, zero twist
+  walk_fwd_vx+01000_vy+00000_wz+00000.npz    one file per twist, in thousandths
+  walk_bck_vx-00600_vy+00000_wz+00250.npz    (arcs live in walk_fwd / walk_bck)
+  walk_turn_vx+00000_vy+00000_wz-01000.npz   pivot in place (vx = vy = 0)
+```
+
+A release is never edited; publish the next `_vNNN` instead. The converter refuses an
+existing output folder unless you pass `--overwrite`. For each node it does the
+following, and stops on the first failing step, naming every node that failed:
+
+1. **Checks the inputs.** The folder must hold exactly the manifest's nodes plus
+   `idle.npz`, which every release must have. Each file name must match its `twist`
+   label and its family's sign rule. Each loop must close: the closing state equals
+   frame 0 under the stride's SE(2) map. Other manifest fields (grid, QA, contact_loss,
+   ...) are copied, not checked.
+2. **Resamples to exactly round(fps·T) frames, starting at the OSL touchdown**, found
+   on the solver's 200 Hz samples.
+   - A contact is a run with the prosthetic sole below 5 mm (mj-nlp's own stance rule)
+     that reaches the floor. A late-swing dip that stays above the floor is ignored.
+   - The touchdown is the first contact after the swing (the longest gap).
+   - A lift of more than 5 mm off the floor during stance is reported as a warning
+     (`lifts_m` in the manifest). Frame 0 stays at the first contact.
+   - The time warp κ = T/(N/fps) ≤ 0.8 % is applied to the velocities too.
+3. **Re-bases** frame 0 to the origin with the stride-mean heading along +x
+   (`constants.FWD_AXIS_BODY`, −y on osl_fullbody), then runs FK.
+4. **Checks the seam** at the loop point, then writes each clip under its own name,
+   plus `library.json` with a `clipper` block: git sha, phase rule and per-node
+   N / κ / `phase_shift`.
+
+`idle.npz` becomes 50 identical frames of the solved stance (its stillest frame), with
+zero velocities.
 
 ```bash
 uv run python scripts/convert_gait_library.py \
-  ../mj-nlp/examples/osl_mimic/clip_search/gait_library_walk_fwd_multi \
-  --model osl_fullbody --idle   # -> outputs/mjlab/osl_fullbody/<library name>/
+  ../mj-nlp/examples/osl_mimic/libraries/kit_walk_fwd_v001 \
+  --model osl_fullbody          # -> outputs/mjlab/osl_fullbody/kit_walk_fwd_v001/
+```
+
+Older mj-nlp working folders (no `library.json`, such as
+`clip_search/gait_library_walk_fwd_multi`) still convert, with warnings. Give them an
+idle with `--idle-node <mj-nlp idle node>`, or with `--idle` for the `stand` keyframe,
+which is a poor pose. `--phase xcorr [--align-to <npz>]` restores the old
+cross-correlation alignment for comparison.
+
+`--velocity` picks where `joint_vel` and the root velocity come from. Body velocities
+always follow from FK of that qvel.
+
+- `solver` (default): mj-nlp's own qvel, scaled by κ.
+- `central`: (d(q[k−1]→q[k]) + d(q[k]→q[k+1])) / 2 at `--fps`. This is what musclemimic
+  trains on, because its `TrajectoryHandler` recomputes every clip's qvel this way at
+  load, whatever the file holds. Use it for tasks ported from musclemimic.
+- `forward`: d(q[k]→q[k+1]) at `--fps`.
+
+Both differences wrap through the loop, so no end is one-sided. `--fps` must equal the
+task's control rate. The mjlab OSL gait-library tasks (musclemimic ports) run at
+100 Hz with central differences. This is how `unicycle_v001` was made (on HF:
+`guaguama/osl_rl`, dataset, `osl_fullbody/unicycle_v001/`):
+
+```bash
+uv run python scripts/convert_gait_library.py \
+  ../mj-nlp/examples/osl_mimic/unicycle/releases/unicycle_v001 --model osl_fullbody \
+  --fps 100 --velocity central   # -> outputs/mjlab/osl_fullbody/unicycle_v001/
 ```
 
 Each clip also stores `twist_effective` (κ·twist), `stride_T`, `n_frames`,
-`phase_shift` and `source`. Pass `--align-to <converted npz>` to put a later library,
-such as arcs, on the same phase 0.
+`phase_shift` (where frame 0 sits in the source stride, as a fraction), `stride_se2`,
+`velocity_scheme` and `source`. mjlab ignores all of these.
 
-Strides differ in length, so the output is **ragged** (47–82 frames on the walk
-library, plus the 50-frame idle). Set `allow_ragged=True` on the consuming
-`LibraryMotionCommand` cfg. Only `osl_fullbody` is supported for now: a model needs
-entries in both `FWD_AXIS_BODY` and `FOOT_CONTACT_BODIES`.
+Strides differ in length, so the output is **ragged**. In `unicycle_v001` at 100 Hz,
+walking clips are 105–155 frames and pivots 76–247, plus the 50-frame idle. The
+consumer has to accept that: mjlab's `GaitLibraryCommand` does, and the G1-style
+`LibraryMotionCommand` needs `allow_ragged=True`. Only `osl_fullbody` is supported for now: a model needs
+entries in `FWD_AXIS_BODY`, `FOOT_CONTACT_BODIES` and `TOUCHDOWN_FOOT`.
 
 ### Visualize a gait library
 
@@ -240,23 +297,27 @@ library never varies is fixed at 0.
   sliders.
 
 ```bash
-# converted folders (need the stride_se2 key: re-convert anything older)
+# a converted release
 uv run python scripts/visualize_gait_library.py \
-  outputs/mjlab/osl_fullbody/gait_library_walk_fwd_multi \
+  outputs/mjlab/osl_fullbody/kit_walk_fwd_v001 \
   --source mjlab --model osl_fullbody --joystick
 
-# raw mj-nlp folders, converted and phase-aligned together in memory (a few s)
+# mj-nlp releases, converted in memory exactly as the converter would (a few s)
 uv run python scripts/visualize_gait_library.py \
-  ../mj-nlp/examples/osl_mimic/clip_search/gait_library_walk_fwd_multi \
-  ../mj-nlp/examples/osl_mimic/turn_search/gait_library_walk_arc_multi \
-  ../mj-nlp/examples/osl_mimic/turn_search/gait_library_walk_turn_multi \
-  --source mj_nlp_out --model osl_fullbody --idle
+  ../mj-nlp/examples/osl_mimic/libraries/kit_walk_fwd_v001 \
+  ../mj-nlp/examples/osl_mimic/libraries/<another release> \
+  --source mj_nlp_out --model osl_fullbody
+
+# one loose node: point at its folder and pick it with --glob (legacy folders only)
+uv run python scripts/visualize_gait_library.py ../mj-nlp/examples/osl_mimic/bones_search/seeds \
+  --source mj_nlp_out --model osl_fullbody --idle --glob '<node>.npz'
 ```
 
-When folders are combined, a repeated twist keeps the first copy. The arc library
-re-copies the forward wz=0 row. A converted folder that is off the reference phase by
-more than 2 % is reported: convert later libraries with a shared `--align-to`.
-`--treadmill` pins the root at the origin instead of travelling.
+Every clip starts at the OSL touchdown, so any set of releases shares phase 0 and can
+be combined. When folders are combined, a repeated twist keeps the first copy. A
+converted folder with no `library.json`, or one converted with another `--phase`, is
+reported at load because its clip switches will jump. `--treadmill` pins the root at the
+origin instead of travelling.
 
 ## Models
 
