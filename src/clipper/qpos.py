@@ -10,6 +10,8 @@ the 6 it doesn't have).
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 import mujoco
 import numpy as np
 
@@ -62,8 +64,62 @@ def build_qpos(
     return qpos
 
 
-def enforce_joint_equalities(model: mujoco.MjModel, qpos: np.ndarray) -> np.ndarray:
-    """Return a copy of `qpos` with every active joint coupling solved exactly.
+def _joint_equalities(
+    model: mujoco.MjModel, joint_names: Collection[str] | None
+) -> list[tuple[int, int, np.ndarray]]:
+    """Active joint equalities as (follower, driver or -1, polycoef), selected by follower.
+
+    ``joint_names`` None selects all, an empty collection none. Raises on a chain (a
+    driver that is itself driven), for which one pass would not be exact.
+    """
+    eqs = [
+        e for e in range(model.neq)
+        if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT and model.eq_active0[e]
+        and (joint_names is None or model.joint(int(model.eq_obj1id[e])).name in joint_names)
+    ]
+    driven = {int(model.eq_obj1id[e]) for e in eqs}
+    out = []
+    for e in eqs:
+        j1, j2 = int(model.eq_obj1id[e]), int(model.eq_obj2id[e])
+        if j2 in driven:
+            raise ValueError(
+                f"chained joint equality: {model.joint(j2).name} drives "
+                f"{model.joint(j1).name} but is itself driven."
+            )
+        out.append((j1, j2, np.array(model.eq_data[e, :5], dtype=np.float64)))
+    return out
+
+
+def import_equality_joints(model: mujoco.MjModel, model_id: str) -> tuple[str, ...]:
+    """Followers an *import* projects: the knee couplers on osl_fullbody/myolegs, else none.
+
+    The policy for trajectories solved outside this model (musclemimic/TERRA caches, and
+    clipper's own mj-nlp CSV exports of them): the knees are the one known cross-model
+    difference (two left-knee polynomials changed sign in myo_sim 0.2.3, and the old
+    amputee cache lacks myolegs' right-knee followers), while solved spine and shoulder
+    coordinates are kept even where they miss this model's couplings. mj-nlp *solver
+    outputs* are different: they ran on this model and solve every coupling
+    (``sources/mj_nlp_out.py``).
+    """
+    if model_id not in {"osl_fullbody", "myolegs"}:
+        return ()
+    return tuple(
+        model.joint(i).name for i in range(model.njnt)
+        if model.joint(i).name.startswith("knee_angle_")
+    )
+
+
+def enforce_joint_equalities(
+    model: mujoco.MjModel,
+    qpos: np.ndarray,
+    *,
+    joint_names: Collection[str] | None = None,
+) -> np.ndarray:
+    """Return a copy of `qpos` with selected active joint couplings solved exactly.
+
+    ``joint_names`` selects dependent joints; None selects all, an empty collection
+    selects none. Solved trajectories can carry independent spinal coordinates
+    that must not be replaced by this model's default coupling equations.
 
     MSK knees carry coupler joints (``knee_angle_rotation3_l`` etc.) tied to the
     knee angle by joint equalities, ``q1 - q1_ref = sum_k c_k (q2 - q2_ref)^k`` with
@@ -76,24 +132,37 @@ def enforce_joint_equalities(model: mujoco.MjModel, qpos: np.ndarray) -> np.ndar
     the source never had (``myolegs``' right knee from the OSL_KA cache).
     """
     qpos = np.array(qpos, dtype=np.float64)
-    eqs = [
-        e for e in range(model.neq)
-        if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT and model.eq_active0[e]
-    ]
-    driven = {int(model.eq_obj1id[e]) for e in eqs}
-    for e in eqs:
-        j1, j2 = int(model.eq_obj1id[e]), int(model.eq_obj2id[e])
-        if j2 in driven:  # a single pass is only exact when no driver is itself driven
-            raise ValueError(
-                f"chained joint equality: {model.joint(j2).name} drives "
-                f"{model.joint(j1).name} but is itself driven."
-            )
+    for j1, j2, c in _joint_equalities(model, joint_names):
         a1 = model.jnt_qposadr[j1]
-        c = model.eq_data[e, :5]
         if j2 < 0:
-            qpos[:, a1] = model.qpos0[a1] + c[0]
+            qpos[..., a1] = model.qpos0[a1] + c[0]
             continue
         a2 = model.jnt_qposadr[j2]
-        x = qpos[:, a2] - model.qpos0[a2]
-        qpos[:, a1] = model.qpos0[a1] + c[0] + x * (c[1] + x * (c[2] + x * (c[3] + x * c[4])))
+        x = qpos[..., a2] - model.qpos0[a2]
+        qpos[..., a1] = model.qpos0[a1] + c[0] + x * (c[1] + x * (c[2] + x * (c[3] + x * c[4])))
     return qpos
+
+
+def enforce_joint_equality_velocities(
+    model: mujoco.MjModel,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+    *,
+    joint_names: Collection[str] | None = None,
+) -> np.ndarray:
+    """Return a copy of `qvel` whose selected followers move as their couplings dictate.
+
+    The time derivative of `enforce_joint_equalities`' polynomial, ``v1 = p'(q2 - q2_ref)
+    v2`` (0 for a driverless equality), so a solver's qvel stays consistent with the
+    projected qpos. Same selection as `enforce_joint_equalities`.
+    """
+    qvel = np.array(qvel, dtype=np.float64)
+    for j1, j2, c in _joint_equalities(model, joint_names):
+        d1 = model.jnt_dofadr[j1]
+        if j2 < 0:
+            qvel[..., d1] = 0.0
+            continue
+        a2, d2 = model.jnt_qposadr[j2], model.jnt_dofadr[j2]
+        x = qpos[..., a2] - model.qpos0[a2]
+        qvel[..., d1] = (c[1] + x * (2 * c[2] + x * (3 * c[3] + x * 4 * c[4]))) * qvel[..., d2]
+    return qvel

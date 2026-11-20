@@ -9,7 +9,7 @@ with the same name and the same file names in mjlab's motion format, plus the
 globs ``*.npz``). Per node, in order:
 
   a. check that the loop closes, and stop, naming every node that fails;
-  b./c. resample to exactly round(50 T) frames starting at the OSL touchdown;
+  b./c. resample to exactly round(fps T) frames starting at the OSL touchdown;
   d. re-base (root at the origin, stride-mean heading along +x), then FK;
   e. write it under the same name;
   f. add the clipper block to library.json.
@@ -21,6 +21,7 @@ convert, with a warning, and a manifest is started for them. See
 
 Examples:
     # A release -> outputs/mjlab/osl_fullbody/kit_walk_fwd_v001/
+    # (osl_fullbody defaults to --fps 100 --velocity central: GAIT_LIBRARY_DEFAULTS)
     python scripts/convert_gait_library.py \
         ../mj-nlp/examples/osl_mimic/libraries/kit_walk_fwd_v001 --model osl_fullbody
 
@@ -62,8 +63,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Output folder. Default: outputs/mjlab/<model>/<release name>.",
     )
     p.add_argument(
-        "--fps", type=float, default=constants.MJLAB_MOTION_FPS,
-        help="Output rate; must equal the env's 1/step_dt.",
+        "--fps", type=float, default=None,
+        help="Output rate; must equal the env's 1/step_dt. Default: the model's "
+        "constants.GAIT_LIBRARY_DEFAULTS entry (osl_fullbody: 100), else "
+        f"{constants.MJLAB_MOTION_FPS:g}.",
     )
     p.add_argument(
         "--phase", choices=gl.PHASES, default="touchdown",
@@ -77,10 +80,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "the straight node nearest the library's mid forward speed.",
     )
     p.add_argument(
-        "--velocity", choices=gl.VELOCITIES, default="solver",
+        "--velocity", choices=gl.VELOCITIES, default=None,
         help="qvel source (body velocities follow by FK). solver: mj-nlp's qvel x kappa. "
         "central: musclemimic's convention (its loader recomputes central differences). "
-        "forward: d(q[k] -> q[k+1]). Both differences at --fps, wrapped through the loop.",
+        "forward: d(q[k] -> q[k+1]). Both differences at --fps, wrapped through the loop. "
+        "Default: the model's constants.GAIT_LIBRARY_DEFAULTS entry (osl_fullbody: "
+        "central), else solver.",
     )
     p.add_argument(
         "--glob", default=None,
@@ -102,7 +107,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Replace an existing output folder's npz + library.json. A published "
         "release is never edited: bump its _vNNN instead.",
     )
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    defaults = constants.GAIT_LIBRARY_DEFAULTS.get(args.model, {})
+    if args.fps is None:
+        args.fps = float(defaults.get("fps", constants.MJLAB_MOTION_FPS))
+    if args.velocity is None:
+        args.velocity = str(defaults.get("velocity", "solver"))
+    print(f"{args.model}: {args.fps:g} Hz, velocity {args.velocity}")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

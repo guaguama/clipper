@@ -60,8 +60,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--model", required=True, choices=SUPPORTED_MODELS)
     p.add_argument(
-        "--fps", type=float, default=constants.MJLAB_MOTION_FPS,
-        help="Clip frame rate (mjlab clips are 50 Hz; mj_nlp_out resamples to it).",
+        "--fps", type=float, default=None,
+        help="Clip frame rate. Default: mjlab clips play at the `fps` stored in each file "
+        f"(real time); mj_nlp_out resamples at {constants.MJLAB_MOTION_FPS:g} Hz. A value "
+        "overrides both, so on mjlab files it changes the speed (use --speed for that).",
     )
     p.add_argument("--speed", type=float, default=1.0, help="Playback speed factor.")
     p.add_argument(
@@ -96,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     clips = load_library(
         args.library, args.source, args.model, fps=args.fps, idle=args.idle, glob=args.glob,
     )
-    player = LibraryPlayer(clips, args.model, fps=args.fps, blend_s=args.blend)
+    player = LibraryPlayer(clips, args.model, blend_s=args.blend)
     js = Joystick.open(args.joystick) if args.joystick else None
     view_library(
         load_model(args.model), player, args.model,

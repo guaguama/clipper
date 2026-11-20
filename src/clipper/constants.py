@@ -210,6 +210,8 @@ SOURCES: tuple[str, ...] = (
     # musclemimic retargeted clips in ~/.musclemimic/caches (self-describing npz);
     # the matching round-trip writer re-emits this schema. See sources/musclemimic.py.
     "musclemimic",
+    # TERRA's motion NPZ + <stem>_terrain.json (stairs, ramps, obstacles).
+    "terra",
     # holosoma retargeted npz: qpos already in g1_29dof layout (wxyz, m, rad) plus the
     # source SMPL skeleton (`human_joints`) shown as a viz overlay. See sources/holosoma.py.
     "holosoma",
@@ -238,6 +240,17 @@ SRB_KINO_DEFAULT_FPS: float = 50.0
 # with nothing raising. Matches upstream csv_to_npz's own `--output-fps` default.
 # The `mjlab` writer resamples to this unless `--output-fps` says otherwise.
 MJLAB_MOTION_FPS: float = 50.0
+
+# Per-model defaults for `scripts/convert_gait_library.py` (`--fps`, `--velocity`); a
+# model missing here gets MJLAB_MOTION_FPS and the solver's qvel. osl_fullbody's
+# gait-library tasks in mjlab are musclemimic ports: they step at 0.01 s, and
+# musclemimic's loader recomputes every clip's qvel as central differences, so OSL
+# libraries are always 100 Hz central. Before this table they defaulted to 50 Hz, and
+# a release converted without the flags went out at the wrong rate (highstep_v002,
+# 2026-11-19). The explicit flags still win.
+GAIT_LIBRARY_DEFAULTS: dict[str, dict[str, float | str]] = {
+    "osl_fullbody": {"fps": 100.0, "velocity": "central"},
+}
 
 # musclemimic caches store `frequency` (100 Hz for the current AMASS retargets);
 # used only as a fallback if a file is missing it. Override via `--fps`.

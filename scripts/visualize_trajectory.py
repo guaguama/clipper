@@ -28,6 +28,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--path", required=True, type=Path, help="Trajectory file.")
     p.add_argument(
+        "--terrain", type=Path, default=None,
+        help="Terrain JSON for --source terra; overrides <motion_stem>_terrain.json.",
+    )
+    p.add_argument(
         "--source",
         required=True,
         choices=constants.SOURCES,
@@ -55,7 +59,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--speed", type=float, default=1.0, help="Real-time multiplier.")
     p.add_argument("--no-loop", action="store_true", help="Play once, then stop.")
     p.add_argument("--no-floor", action="store_true", help="Hide the ground plane.")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.terrain is not None and args.source != "terra":
+        p.error("--terrain requires --source terra (MSK motion + terrain).")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -66,11 +73,12 @@ def main(argv: list[str] | None = None) -> None:
 
     model = load_model(args.model, floor=not args.no_floor)
     loader = get_loader(args.source)
+    load_kwargs = {"terrain": args.terrain} if args.terrain is not None else {}
     traj = loader(
-        args.path, model, args.model, source=args.source, fps=args.fps
+        args.path, model, args.model, source=args.source, fps=args.fps, **load_kwargs
     )
     if args.mode == "scrub":
-        scrub(model, traj, path=args.path)
+        scrub(model, traj, path=args.path, terrain=args.terrain)
     else:
         replay(model, traj, fps=args.fps, loop=not args.no_loop, speed=args.speed)
 

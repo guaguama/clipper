@@ -3,6 +3,7 @@
 Each loader has the signature
 ``load(path, model, model_id, source=..., fps=None) -> Trajectory`` and returns a
 `Trajectory` whose qpos is already in the target model's layout.
+The ``terra`` loader also accepts ``terrain=Path(...)`` to override its sidecar.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from . import (
     sbto,
     sbto_out,
     srb_kino,
+    terra,
 )
 
 # DefaultDatasets and Lafan1 share the LocoMuJoCo npz format/loader.
@@ -39,6 +41,8 @@ SOURCE_LOADERS: dict[str, Callable[..., Trajectory]] = {
     "srb_kino": srb_kino.load,
     # musclemimic retargeted caches + clipper's round-trip output (self-describing).
     "musclemimic": musclemimic.load,
+    # TERRA's MSK motion plus its paired world-frame box terrain.
+    "terra": terra.load,
     # holosoma retargeted npz (g1_29dof qpos + source skeleton overlay), read-only import.
     "holosoma": holosoma.load,
     # clipper's own sbto reference NPZ, re-loadable for viz/re-crop (round-trip).

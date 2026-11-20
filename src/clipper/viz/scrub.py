@@ -39,7 +39,7 @@ from .. import constants
 from ..qpos import joint_qpos_address
 from ..trajectory import Trajectory
 from .camera import center_on_pelvis
-from .markers import draw_markers
+from .overlays import draw_overlays
 from .replay import _default_render_flags_off, set_pose
 
 
@@ -63,6 +63,7 @@ def scrub(
     coarse: int = 10,
     poll_ms: int = 30,
     path: Path | None = None,
+    terrain: Path | None = None,
 ) -> None:
     """Interactively scrub `traj` with frame / z-height / ankle sliders + keys.
 
@@ -78,6 +79,7 @@ def scrub(
             MuJoCo viewer is closed.
         path: The trajectory file, for the crop command printed by `f`
             (``<path>`` placeholder when omitted).
+        terrain: Explicit terrain override, preserved in the printed crop command.
     """
     n = traj.num_frames
     fps = float(traj.fps)
@@ -139,9 +141,8 @@ def scrub(
             joint_offsets[bio_adr] = np.deg2rad(_clamp(bio_slider.val, ankle_range))
         set_pose(model, data, traj, f, z_offset=z, joint_offsets=joint_offsets)
         if viewer is not None:
-            if traj.markers is not None:
-                viewer.user_scn.ngeom = 0
-                draw_markers(viewer.user_scn, traj.markers[f] + np.array([0.0, 0.0, z]))
+            viewer.user_scn.ngeom = 0
+            draw_overlays(viewer.user_scn, traj, f, z_offset=z)
             try:
                 viewer.sync()
             except Exception:
@@ -154,6 +155,8 @@ def scrub(
             "python scripts/crop_trajectory.py",
             f"--path {path_arg}", f"--source {traj.source}", f"--model {traj.model}",
         ]
+        if terrain is not None:
+            cmd.append(f"--terrain {shlex.quote(str(Path(terrain).expanduser().resolve()))}")
         bounds = sorted(marks[-2:])
         cmd.append(f"--start {bounds[0]}")
         if len(bounds) == 2:

@@ -9,6 +9,9 @@ Layout (see ``writers/mj_nlp.py``):
   ``base_pos(3) + base_quat(4, wxyz) + joints`` in the writing model's qpos order.
 - ``time.csv`` ``(N,)`` — absolute time stamps (s); the frame rate is its sample
   period (``1 / median(diff(time))``), matching playback's own timing logic.
+- Optional ``terrain.json`` — static boxes in the same world frame, with an
+  implicit ground plane at z=0. Missing means motion-only; ``boxes: []`` means
+  explicitly flat. Invalid sidecars raise instead of silently losing obstacles.
 
 ``--path`` may be the trajectory folder (the ``qpos_<dof>dof.csv`` matching the
 target ``--model`` is preferred, else whichever variant is present) or a specific
@@ -23,10 +26,19 @@ onto G1 joint names — none of which match, so `build_qpos` would drop every co
 silently yield an all-zero-joint clip. Only
 when the width is *not* the target model's own does the G1 table apply, which is what
 serves the cross-dof case (a 36-wide clip viewed on `g1_23dof`).
+
+**Joint couplings: knees only.** These CSVs are mostly clipper's own exports of
+musclemimic/TERRA imports, whose solved spine and shoulder coordinates are kept on
+purpose even where they miss the model's couplings (re-solving a TERRA spine folded the
+trunk). So the CSV gets the import policy, `qpos.import_equality_joints`: the knee
+followers on osl_fullbody/myolegs, nothing elsewhere. On a clipper export that is a
+no-op to ~1e-7. mj-nlp's *solver output* is a different source (``mj_nlp_out``) and
+solves every coupling.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 import mujoco
@@ -34,7 +46,8 @@ import numpy as np
 
 from .. import constants
 from ..model import joint_names
-from ..qpos import build_qpos
+from ..qpos import build_qpos, enforce_joint_equalities, import_equality_joints
+from ..terrain import Terrain
 from ..trajectory import Trajectory
 
 # qpos width (nq) -> source joint column order, for the cross-dof G1 case only.
@@ -77,10 +90,18 @@ def load(
     model_id: str,
     source: str = "mj_nlp",
     fps: float | None = None,
+    *,
+    equality_joints: Collection[str] | None = None,
 ) -> Trajectory:
-    """Load an mj-nlp trajectory into a `Trajectory` in `model`'s qpos layout."""
+    """Load an mj-nlp trajectory into a `Trajectory` in `model`'s qpos layout.
+
+    ``equality_joints`` selects the coupled followers to re-solve. None is the import
+    policy (`qpos.import_equality_joints`), an empty collection disables projection.
+    """
     path = Path(path)
     qpos_csv = _resolve_qpos_csv(path, model_id)
+    terrain_path = qpos_csv.parent / "terrain.json"
+    terrain = Terrain.load(terrain_path) if terrain_path.exists() else None
 
     raw = np.loadtxt(qpos_csv, delimiter=",", dtype=np.float64)
     if raw.ndim == 1:
@@ -105,6 +126,9 @@ def load(
     }
 
     qpos = build_qpos(model, base_pos, base_quat_wxyz, joint_angles)
+    if equality_joints is None:
+        equality_joints = import_equality_joints(model, model_id)
+    qpos = enforce_joint_equalities(model, qpos, joint_names=equality_joints)
 
     if fps is None:
         # time.csv sits beside the qpos CSV (or in the folder that was passed).
@@ -120,4 +144,5 @@ def load(
         model=model_id,
         source=source,
         name=qpos_csv.parent.name if path.is_dir() else qpos_csv.stem,
+        terrain=terrain,
     )

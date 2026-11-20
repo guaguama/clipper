@@ -142,7 +142,7 @@ def view_library(
         left = "command\nclip\nnode twist\nphase"
         right = (
             f"{cm}   [{src}]\n{c.name}\n{tw}   (eff. vx {c.twist_effective[0]:+.3f})\n"
-            f"{player.phase:.2f} of {c.n} frames   loop {player.loops}{blend}"
+            f"{player.phase:.2f} of {c.n} frames @ {c.fps:g} Hz   loop {player.loops}{blend}"
         )
         return left, right
 

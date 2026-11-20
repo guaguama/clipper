@@ -42,6 +42,11 @@ ways, and this module fixes each one:
    the root at xy = 0 and the **stride-mean heading** of the anatomical forward axis
    (``constants.FWD_AXIS_BODY``, -y on osl_fullbody) along +x.
 
+**Joint couplings.** mj-nlp's equalities are soft, so a node's coupled followers (the
+intact knee, the shoulder girdle) miss their polynomials by up to ~0.03 rad. Each node is
+re-solved on load like the ``mj_nlp_out`` source does (qpos exactly, qvel by the chain
+rule), and again after resampling, since a lerp between two coupled samples is not coupled.
+
 Before any of that, each node's **loop closure** is checked (closing state = frame 0
 moved by the stride map); a seam check then compares the runtime loop step (frame N-1
 -> the SE(2)-mapped frame 0) with the clip's interior steps.
@@ -258,7 +263,8 @@ def read_node(path: Path, model_id: str) -> Node:
     """
     model = _models(model_id)[0]
     _check_free_root(model, model_id)
-    traj = mj_nlp_out.load(path, model, model_id)
+    # Untouched rollout first: the layout check below compares it with the raw state.
+    traj = mj_nlp_out.load(path, model, model_id, equality_joints=())
     raw = np.load(path)
     state = np.asarray(raw["state"], dtype=np.float64)
     if state.shape[1] != model.nq + model.nv:
@@ -275,7 +281,8 @@ def read_node(path: Path, model_id: str) -> Node:
         )
     if traj.twist is None:
         raise ValueError(f"{path.name}: no `twist` label; not a gait-library node.")
-    qpos, qvel = traj.qpos, state[:, model.nq :]
+    # Re-solve the soft couplings, as the mj_nlp_out source does (see its docstring).
+    qpos, qvel = mj_nlp_out.couple(model, traj.qpos, state[:, model.nq :])
     stride = stride_map(qpos[0], qpos[-1], model_id)
     pos_err, vel_err = closure_error(qpos, qvel, stride)
     if pos_err > CLOSURE_TOL_POS or vel_err > CLOSURE_TOL_VEL:
@@ -443,8 +450,12 @@ def resample_node(
     kappa = T / (n_out / out_fps)
     qpos = mathx.lerp(qpos_src[i0], qpos_src[i1], b[:, None])
     qpos[:, 3:7] = mathx.slerp(qpos_src[i0, 3:7], qpos_src[i1, 3:7], b)
+    # A lerp of two coupled samples is off the (polynomial) coupling by ~1e-5: re-solve.
+    model = _models(model_id)[0]
+    qpos, _ = mj_nlp_out.couple(model, qpos)
     if velocity == "solver":
         qvel = mathx.lerp(qvel_src[i0], qvel_src[i1], b[:, None]) * kappa
+        _, qvel = mj_nlp_out.couple(model, qpos, qvel)
     else:
         qvel = loop_velocities(qpos, node.stride, model_id, out_fps, velocity)
 
@@ -637,7 +648,8 @@ def idle_clip(model_id: str, n_frames: int, keyframe: str = "stand") -> tuple[Cl
     kid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, keyframe)
     if kid < 0:
         raise ValueError(f"{model_id!r} has no keyframe {keyframe!r}.")
-    qpos = np.array(model.key_qpos[kid], dtype=np.float64)
+    # The keyframe's knee followers miss their couplings (osl_fullbody `stand`: 0.052).
+    qpos, _ = mj_nlp_out.couple(model, np.array(model.key_qpos[kid], dtype=np.float64))
     data = mujoco.MjData(model)
     data.qpos[:] = qpos
     mujoco.mj_kinematics(model, data)

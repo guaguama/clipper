@@ -11,7 +11,9 @@ reference the policy actually tracks:
   gets weight 0. There is no interpolation between nodes.
 * **Phase.** Normalised phase ``phi`` in ``[0, 1)`` survives a switch: clip ``c`` sits at
   fractional frame ``phi * N_c``. Frames are interpolated (lerp, slerp for the root).
-  Past frame ``N-1``, the next frame is frame 0 moved by the clip's stride map.
+  Past frame ``N-1``, the next frame is frame 0 moved by the clip's stride map. ``phi``
+  advances at the current clip's own frame rate (``LibraryClip.fps``, read from each
+  file's ``fps`` key), so a 100 Hz library plays in real time without a flag.
 * **Continuous travel.** Clip poses live in each clip's own frame (re-based, frame 0
   at the origin). A planar SE(2) anchor ``A`` places them in the world. On each
   loop, ``A <- A @ stride``. On a switch the new clip is re-anchored so its root
@@ -59,11 +61,17 @@ class LibraryClip:
     twist_effective: np.ndarray  # (3,) label x kappa (exact-period time warp)
     qpos: np.ndarray  # (N, nq)
     stride: np.ndarray  # (3, 3) planar map frame k -> frame k + N
+    fps: float  # frame rate the clip plays at (its file's `fps` key unless overridden)
     source: str = ""
 
     @property
     def n(self) -> int:
         return int(self.qpos.shape[0])
+
+    @property
+    def period(self) -> float:
+        """Loop duration in seconds of motion time."""
+        return self.n / self.fps
 
     @property
     def is_idle(self) -> bool:
@@ -119,8 +127,12 @@ def _qpos_from_mjlab_arrays(model, model_id, body_pos_w, body_quat_w, joint_pos)
     )
 
 
-def _load_mjlab_dir(d: Path, model, model_id: str) -> list[LibraryClip]:
+def _load_mjlab_dir(
+    d: Path, model, model_id: str, fps: float | None = None
+) -> list[LibraryClip]:
+    """Load a converted folder. Each clip plays at its own `fps` key unless `fps` is given."""
     out = []
+    missing_fps = 0
     for f in sorted(d.glob("*.npz")):
         data = np.load(f)
         if "twist" not in data:
@@ -130,6 +142,13 @@ def _load_mjlab_dir(d: Path, model, model_id: str) -> list[LibraryClip]:
                 f"{f}: no `stride_se2` key (needed to chain loops). Re-run "
                 "scripts/convert_gait_library.py on its source library."
             )
+        if fps is not None:
+            rate = float(fps)
+        elif "fps" in data:
+            rate = float(np.asarray(data["fps"]).reshape(-1)[0])
+        else:
+            rate = constants.MJLAB_MOTION_FPS
+            missing_fps += 1
         twist = np.asarray(data["twist"], np.float64).reshape(3)
         eff = data["twist_effective"] if "twist_effective" in data else twist
         clip = LibraryClip(
@@ -140,21 +159,34 @@ def _load_mjlab_dir(d: Path, model, model_id: str) -> list[LibraryClip]:
                 model, model_id, data["body_pos_w"], data["body_quat_w"], data["joint_pos"]
             ),
             stride=np.asarray(data["stride_se2"], np.float64),
+            fps=rate,
             source=str(f),
         )
         out.append(clip)
+    if missing_fps:
+        print(
+            f"  WARNING: {d}: {missing_fps} clip(s) have no `fps` key; playing them at "
+            f"{constants.MJLAB_MOTION_FPS:g} Hz (pass --fps if that is wrong)."
+        )
     return out
 
 
-def _from_gl_clip(c: gl.Clip, model, model_id: str) -> LibraryClip:
+def _from_gl_clip(c: gl.Clip, model, model_id: str, fps: float) -> LibraryClip:
+    """A converter clip, resampled at `fps`, as a player clip."""
     return LibraryClip(
         name=c.name,
         twist=np.asarray(c.twist, np.float64),
         twist_effective=np.asarray(c.twist, np.float64) * c.kappa,
         qpos=_qpos_from_mjlab_arrays(model, model_id, c.body_pos_w, c.body_quat_w, c.joint_pos),
         stride=c.stride.copy(),
+        fps=float(fps),
         source=c.source,
     )
+
+
+def _rates(clips: list[LibraryClip]) -> str:
+    """'100 Hz', or '50/100 Hz' for a folder mixing rates."""
+    return "/".join(f"{r:g}" for r in sorted({c.fps for c in clips})) + " Hz"
 
 
 def _dedupe(items: list, twist_of, name_of) -> list:
@@ -175,7 +207,7 @@ def load_library(
     dirs: list[Path],
     source: str,
     model_id: str,
-    fps: float = constants.MJLAB_MOTION_FPS,
+    fps: float | None = None,
     idle: bool = False,
     glob: str | None = None,
 ) -> list[LibraryClip]:
@@ -186,6 +218,10 @@ def load_library(
             ``"mj_nlp_out"`` for mj-nlp release folders (or legacy working folders),
             converted in memory exactly as ``convert_gait_library.py`` would: each node
             starts at the OSL touchdown, so folders combine without a shared reference.
+        fps: clip frame rate. ``None`` (default): mjlab clips play at their file's
+            ``fps`` key, and mj_nlp_out resamples at ``constants.MJLAB_MOTION_FPS``,
+            the converter's default. A number overrides both; on mjlab files that
+            changes the playback speed by ``fps / stored``.
         idle: mj_nlp_out only — add the model's ``stand`` keyframe as the zero-twist
             node when no folder has an ``idle.npz``.
         glob: mj_nlp_out legacy folders only (no ``library.json``) — node files.
@@ -195,29 +231,35 @@ def load_library(
     if source == "mjlab":
         clips = []
         for d in dirs:
-            got = _load_mjlab_dir(Path(d), model, model_id)
-            print(f"  {d}: {len(got)} clips{_manifest_note(Path(d))}")
+            got = _load_mjlab_dir(Path(d), model, model_id, fps)
+            rate = _rates(got) + (" (--fps override)" if fps is not None else "") if got else ""
+            print(f"  {d}: {len(got)} clips @ {rate}{_manifest_note(Path(d))}")
             clips.extend(got)
         clips = _dedupe(clips, lambda c: c.twist, lambda c: c.name)
         if idle:
             print("  note: --idle only applies to mj_nlp_out; mjlab folders carry their own idle.npz")
     elif source == "mj_nlp_out":
+        rate = constants.MJLAB_MOTION_FPS if fps is None else float(fps)
         clips = []
         for d in dirs:
             rel = gl.read_release(Path(d), glob)
-            conv = gl.convert_release(rel, model_id, fps, phase="touchdown")
+            conv = gl.convert_release(rel, model_id, rate, phase="touchdown")
             kind = "release" if rel.manifest is not None else "legacy folder"
-            print(f"  {d}: {kind}, {len(conv.clips)} nodes" + (" + idle.npz" if conv.idle else ""))
+            print(
+                f"  {d}: {kind}, {len(conv.clips)} nodes" + (" + idle.npz" if conv.idle else "")
+                + f", resampled @ {rate:g} Hz"
+            )
             for w in conv.warnings:
                 print(f"    warning: {w}")
             for r in conv.rows:
                 if any(v > gl.SEAM_TOL for v in r["seam"].values()):
                     print(f"    WARNING: {r['name']} fails the seam check (convert would refuse it)")
             raw = conv.clips + ([conv.idle] if conv.idle is not None else [])
-            clips.extend(_from_gl_clip(c, model, model_id) for c in raw)
+            clips.extend(_from_gl_clip(c, model, model_id, rate) for c in raw)
         clips = _dedupe(clips, lambda c: c.twist, lambda c: c.name)
         if idle and not any(c.is_idle for c in clips):
-            clips.append(_from_gl_clip(gl.idle_clip(model_id, int(round(fps)))[0], model, model_id))
+            idle_c = gl.idle_clip(model_id, int(round(rate)))[0]
+            clips.append(_from_gl_clip(idle_c, model, model_id, rate))
     else:
         raise ValueError(f"unsupported library source {source!r}")
 
@@ -297,12 +339,10 @@ class LibraryPlayer:
         self,
         clips: list[LibraryClip],
         model_id: str,
-        fps: float = constants.MJLAB_MOTION_FPS,
         blend_s: float = 0.4,
     ):
         self.clips = clips
         self.fwd = constants.FWD_AXIS_BODY[model_id]
-        self.fps = float(fps)
         self.blend_s = float(blend_s)
         self.selector = TwistSelector(np.stack([c.twist for c in clips]))
         start = self.selector.nearest(np.zeros(3))
@@ -350,8 +390,12 @@ class LibraryPlayer:
         return True
 
     def step(self, dt: float) -> np.ndarray:
-        """Advance by `dt` seconds of motion time; return the world qpos."""
-        self.phase += dt * self.fps / self.clip.n
+        """Advance by `dt` seconds of motion time; return the world qpos.
+
+        Phase advances at the current clip's own rate (``n / fps`` seconds per loop), so
+        clips of different frame rates all play in real time.
+        """
+        self.phase += dt / self.clip.period
         while self.phase >= 1.0:
             self.phase -= 1.0
             self.anchor = self.anchor @ self.clip.stride

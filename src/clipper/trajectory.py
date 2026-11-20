@@ -12,16 +12,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .terrain import Terrain
+
 
 @dataclass
 class Trajectory:
-    """A reference motion in MuJoCo qpos form for a specific G1 model.
+    """A reference motion in MuJoCo qpos form for a specific target model.
 
     Attributes:
         qpos: (N, nq) float array in the target model's qpos layout —
             ``[base_pos(3), base_quat_wxyz(4), joints(DOF)]``, radians, meters.
         fps: Playback frame rate in Hz.
-        model: Target model id, ``"g1_29dof"`` or ``"g1_23dof"``.
+        model: Target model id (e.g. ``"g1_29dof"`` or ``"osl_fullbody"``).
         source: Provenance source id (e.g. ``"lafan1"``, ``"bones_seed"``).
         name: Short name of the motion (typically the source file stem).
         markers: Optional ``(N, K, 3)`` world-frame overlay points (e.g. the source
@@ -31,6 +33,9 @@ class Trajectory:
         twist: Optional commanded ``[vx, vy, wz]`` label (m/s, m/s, rad/s) the source
             carries, e.g. an mj-nlp gait-library node. Writers never read it;
             ``clipper.gait_library`` uses it to label converted library clips.
+        terrain: Optional static box terrain in the same world frame as qpos.
+            Visualization draws it in place; pose edits leave it fixed. The
+            mj_nlp writer exports it as terrain.json alongside the motion CSVs.
     """
 
     qpos: np.ndarray
@@ -40,6 +45,7 @@ class Trajectory:
     name: str
     markers: np.ndarray | None = None
     twist: np.ndarray | None = None
+    terrain: Terrain | None = None
 
     @property
     def num_frames(self) -> int:

@@ -84,6 +84,7 @@ matching source id, so a converted clip can be re-viewed or re-cropped.
 |---|---|
 | `--path` | path to reference trajectory (required) |
 | `--source` | see [Sources](#sources) (required; no autodetection) |
+| `--terrain` | with `--source terra`, use this terrain JSON instead of `<motion_stem>_terrain.json` |
 | `--model` | see [Models](#models) (required) |
 | `--mode` | `replay` (default) \| `scrub` (slider + keyboard) |
 | `--fps` | playback rate override; default is the source's own rate |
@@ -96,6 +97,7 @@ matching source id, so a converted clip can be re-viewed or re-cropped.
 | flag | meaning |
 |---|---|
 | `--path` / `--source` / `--model` | as above (all required) |
+| `--terrain` | with `--source terra`, use an explicit terrain JSON, including one stored separately from the motion |
 | `--format` | output format, see [Output formats](#output-formats) (required) |
 | `--start` / `--stop` | crop bounds (0-based, inclusive; default full clip) |
 | `--height-offset` | global z added to every frame (m) |
@@ -137,22 +139,119 @@ which round-trip exactly.
 | `lafan1` | LocoMuJoCo `.npz` | 40 Hz | same loader as above |
 | `bones_seed` | Bones Studio CSV | 120 Hz | cm→m, deg→rad, Z-up, raw height |
 | `musclemimic` | MSK cache `.npz` | 100 Hz | R/W. Self-describing (`qpos`, `joint_names`, `frequency`, FK blocks) |
+| `terra` | MSK motion `.npz` + `<stem>_terrain.json` | from file | Motion mapped by name; stairs, ramps and obstacle boxes rendered in world coordinates |
 | `mjlab` | motion-tracking `.npz` | from file | R/W. Also reads clips written for `unitree_rl_mjlab` |
-| `mj_nlp` | `qpos_<dof>dof.csv` + `time.csv` | from `time.csv` | R/W. Quat **wxyz** |
+| `mj_nlp` | `qpos_<dof>dof.csv` + `time.csv` + optional `terrain.json` | from `time.csv` | R/W. Quat **wxyz**; automatically renders terrain when present |
 | `mj_nlp_out` | mj-nlp solver `.npz` | ~100 Hz | read-only. Solved MPC rollout (`state`) |
 | `sbto` | sbto reference `.npz` | from file | R/W. Reverses the writer's `[quat, pos]` base flip |
 | `sbto_out` | `best_trajectory.npz` | ~100 Hz | read-only. Optimized trajectory; accepts the run dir |
 | `srb_kino` | headerless qpos CSV | 50 Hz default | read-only. Quat **xyzw**, no timing — override with `--fps` |
 | `holosoma` | retargeted `.npz` | 30 Hz | read-only. Already `g1_29dof`-native; overlays the source SMPL skeleton as spheres |
 
+### TERRA terrain visualization
+
+With `--source terra`, Clipper reads an MSK motion NPZ and its `_terrain.json`
+sidecar without installing TERRA or MuscleMimic:
+
+```bash
+uv run python scripts/visualize_trajectory.py \
+  --path ../../01_projpegleg/terra/artifacts/stair-study/MyoFullBody/terra/KIT/3/upstairs04.npz \
+  --source terra --model osl_fullbody --mode scrub
+```
+
+Use `--model myofullbody` to inspect the normative retarget, or `osl_fullbody` to
+project its biological knee/ankle angles onto the prosthesis through the existing
+joint aliases. This projection is a kinematic preview, not a new OSL retarget or
+optimized motion. Omit `--mode scrub` for autoplay.
+
+Both `terra` and `musclemimic` preserve solved spine and shoulder coordinates.
+They use the same motion loader: native `myofullbody` imports preserve every
+coordinate, while `osl_fullbody`/`myolegs` imports recompute only knee couplers.
+Use `--source musclemimic` for a motion-only view of these NPZs; `--source terra`
+also requires and renders the paired terrain sidecar.
+
+Use `--terrain /path/to/terrain.json` to override that sidecar. This works with
+any compatible MuscleMimic NPZ, even when its directory has no terrain file.
+`--terrain` is supported by both visualization and cropping, with `--source terra`:
+
+```bash
+uv run python scripts/crop_trajectory.py \
+  --path ~/.musclemimic/caches/AMASS/MyoFullBody/KIT/3/upstairs04_poses.npz \
+  --source terra --model osl_fullbody \
+  --terrain ../../01_projpegleg/terra/artifacts/stair-study/MyoFullBody/terra/KIT/3/upstairs04_coupled_terrain.json \
+  --format mj_nlp --name musclemimic_upstairs04_poses \
+  --out-dir outputs/mj_nlp/osl_fullbody/stairs
+```
+
+The explicit JSON takes precedence; a missing or malformed override is an error.
+It is used as supplied, with no automatic alignment to the motion. The scrubber's
+printed crop command preserves `--terrain` when an override is used. mj-nlp output
+names are folder stems, so the example creates `musclemimic_upstairs04_poses/`
+containing the CSVs and `terrain.json`.
+
+Terrain boxes retain their centres, half-extents, yaw and pitch (`Rz(yaw) @
+Ry(pitch)`) in the motion's world frame. Pose height/ankle adjustments leave the
+terrain fixed. Replay, scrubbing, and `crop_trajectory.py --visualize/--save-video`
+all show the boxes, including after crop or padding. `--no-floor` does not hide
+the obstacles. Without `--terrain`, a missing sidecar is an error; a flat terrain JSON has
+`"boxes": []`.
+
+`--format mj_nlp` preserves the terrain alongside the converted motion, as
+described below. The other output formats currently export motion only.
+
 ## Output formats
 
 | `--format` | writes | models | consumed by |
 |---|---|---|---|
 | `mjlab` | motion-tracking `.npz` (`joint_pos/vel`, `body_pos/quat/lin_vel/ang_vel_w`, `fps`) | any | [`mjlab`](../../mjlab) and its fork [`unitree_rl_mjlab`](../unitree_rl_mjlab) |
-| `mj_nlp` | `qpos_<dof>dof.csv` + `time.csv` per clip | any | [`mj-nlp`](../mj-nlp) trajectory optimization |
+| `mj_nlp` | `qpos_<dof>dof.csv` + `time.csv` + optional `terrain.json` per clip | any | [`mj-nlp`](../mj-nlp) trajectory optimization |
 | `musclemimic` | round-trip cache `.npz` (full FK + mimic sites) | MSK | [`musclemimic`](../../01_projpegleg/musclemimic) |
 | `sbto` | reference-motion `.npz` | G1 | DynaRetarget/[`sbto`](../sbto) |
+
+### mj-nlp clips with terrain
+
+The cropper automatically writes `terrain.json` whenever the source carries
+terrain. The clip folder is the complete motion/environment asset:
+
+```text
+upstairs04_crop0-731/
+  qpos_73dof.csv
+  time.csv
+  terrain.json
+```
+
+```bash
+uv run python scripts/crop_trajectory.py \
+  --path ../../01_projpegleg/terra/artifacts/stair-study/MyoFullBody/terra/KIT/3/upstairs04.npz \
+  --source terra --model osl_fullbody --format mj_nlp
+
+# Terrain loads automatically in replay or --mode scrub; no extra flag needed.
+uv run python scripts/visualize_trajectory.py \
+  --path outputs/mj_nlp/osl_fullbody/upstairs04_crop0-731 \
+  --source mj_nlp --model osl_fullbody
+```
+
+`terrain.json` uses TERRA's plain TerrainSpec representation: `boxes` and
+`provenance`. Each box has `name`, `pos` (world-frame centre in metres), `size`
+(MuJoCo half-extents in metres), `yaw` and `pitch` (radians, `Rz(yaw) @ Ry(pitch)`).
+The ground plane at z=0 is implicit. Friction and contact solver settings belong
+to mj-nlp's experiment configuration rather than this geometry file.
+
+Cropping/resampling keeps **all** static obstacles and the original reconstruction
+provenance unchanged. Motion stays in its original world frame; height/ankle
+corrections shift the pose relative to the fixed terrain. Standing padding and
+`--auto-foot-contact` still assume a flat floor, so they are not appropriate for
+aligning stair contacts.
+
+Reloading with `--source mj_nlp` reads the sidecar next to the CSVs, whether
+`--path` is the folder or the qpos CSV itself. Legacy folders without a sidecar
+remain motion-only; `"boxes": []` explicitly declares flat terrain. A malformed
+sidecar is an error. Overwriting a folder with motion-only data removes its old
+terrain sidecar so stale obstacles cannot be attached to the new motion.
+
+The future stair optimization script in mj-nlp must load this JSON and add the
+boxes as collision geoms before model compilation, then use terrain-aware costs.
+That consumer-side setup is not implemented by Clipper's export.
 
 ### mjlab
 
@@ -252,7 +351,8 @@ cross-correlation alignment for comparison.
 `--velocity` picks where `joint_vel` and the root velocity come from. Body velocities
 always follow from FK of that qvel.
 
-- `solver` (default): mj-nlp's own qvel, scaled by κ.
+- `solver`: mj-nlp's own qvel, scaled by κ. The default for models without a
+  `GAIT_LIBRARY_DEFAULTS` entry.
 - `central`: (d(q[k−1]→q[k]) + d(q[k]→q[k+1])) / 2 at `--fps`. This is what musclemimic
   trains on, because its `TrajectoryHandler` recomputes every clip's qvel this way at
   load, whatever the file holds. Use it for tasks ported from musclemimic.
@@ -260,13 +360,16 @@ always follow from FK of that qvel.
 
 Both differences wrap through the loop, so no end is one-sided. `--fps` must equal the
 task's control rate. The mjlab OSL gait-library tasks (musclemimic ports) run at
-100 Hz with central differences. This is how `unicycle_v001` was made (on HF:
-`guaguama/osl_rl`, dataset, `osl_fullbody/unicycle_v001/`):
+100 Hz with central differences, so **`--model osl_fullbody` defaults to `--fps 100
+--velocity central`** (`constants.GAIT_LIBRARY_DEFAULTS`). Other models default to
+50 Hz and `solver`. Passing either flag overrides the default, and the converter prints
+the rate and scheme it used. `unicycle_v001` and `highstep_v002` (on HF:
+`guaguama/osl_rl`, dataset, `osl_fullbody/<release>/`) were made this way:
 
 ```bash
 uv run python scripts/convert_gait_library.py \
-  ../mj-nlp/examples/osl_mimic/unicycle/releases/unicycle_v001 --model osl_fullbody \
-  --fps 100 --velocity central   # -> outputs/mjlab/osl_fullbody/unicycle_v001/
+  ../mj-nlp/examples/osl_mimic/unicycle/releases/unicycle_v001 --model osl_fullbody
+  # -> outputs/mjlab/osl_fullbody/unicycle_v001/ (100 Hz, central)
 ```
 
 Each clip also stores `twist_effective` (κ·twist), `stride_T`, `n_frames`,
@@ -319,6 +422,10 @@ converted folder with no `library.json`, or one converted with another `--phase`
 reported at load because its clip switches will jump. `--treadmill` pins the root at the
 origin instead of travelling.
 
+Playback is real time at each clip's own rate: `--source mjlab` reads the `fps` key from
+every npz (a 100 Hz library needs no flag), and `--source mj_nlp_out` resamples at 50 Hz.
+`--fps` overrides both; use `--speed` to play faster or slower.
+
 ## Models
 
 `--model` is required. Any source can be played on any model with a compatible
@@ -339,12 +446,25 @@ musclemimic's default), which is what makes their `nq` match the caches.
 ¹ `myolegs` has no clips of its own; the OSL_KA cache's prosthetic knee/ankle are
 renamed back to the biological joints and the `socket_*` DOFs dropped.
 
-**Knee couplers.** The coupled joints (knee `translation*`/`rotation*`/`beta_*`, shoulder
-girdle) of a `musclemimic` clip are recomputed from the target model's own joint
-equalities rather than copied from the cache. The caches predate myo_sim 0.2.3, whose
-left-knee `rotation3` polynomial has the opposite sign of `osl_fullbody`'s, so copied
-values were off by up to 0.47 rad. This also fills `myolegs`' right-knee couplers,
-which the OSL_KA cache lacks.
+**Knee couplers.** When importing `musclemimic` or `terra` onto `osl_fullbody` or
+`myolegs`, knee followers (`knee_angle_translation*`/`rotation*`/`beta_*`) are
+recomputed from the target model's equalities. OSL v3's left-knee `rotation3` and
+`translation2` polynomials have opposite signs from the bundled MyoFullBody's;
+copied `rotation3` values were off by up to 0.47 rad. This also fills `myolegs`'
+right-knee followers absent from OSL_KA caches. Spine and shoulder values are
+preserved, and native `myofullbody` imports perform no equality projection. The
+`mj_nlp` CSV source follows the same import rule (knees only), because its CSVs are
+mostly clipper's own exports of such imports.
+
+**mj-nlp solver output re-solves every coupling.** `mj_nlp_out` (and the gait-library
+converter and viewer built on it) sets every follower of every active joint equality
+from its driver: the knee, spine and shoulder-girdle couplers. mj-nlp solves on the same
+equalities, but they are soft, so a rollout misses them by up to ~0.06 rad. mjlab's
+physics enforces them, so its references must satisfy them. Drivers and the root are
+untouched, and bodies move by millimetres. The gait converter re-solves again after
+resampling (a lerp between coupled samples is not coupled) and moves solver qvel
+followers by the chain rule. Pass `equality_joints=()` to `mj_nlp_out.load` for the raw
+rollout.
 
 ² The NeuMoVe Lab export built with myo_sim 0.2.3, with the OSL tibial pylon lengthened
 22.5 mm so the prosthetic leg matches the intact one (provenance and edits in

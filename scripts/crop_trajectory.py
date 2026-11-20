@@ -46,6 +46,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--model", required=True, choices=constants.MODELS, help="Target model.",
     )
+    p.add_argument(
+        "--terrain", type=Path, default=None,
+        help="Terrain JSON for --source terra; overrides <motion_stem>_terrain.json.",
+    )
     p.add_argument("--start", type=int, default=None, help="First frame (0-based, inclusive).")
     p.add_argument("--stop", type=int, default=None, help="Last frame (0-based, inclusive).")
     p.add_argument(
@@ -92,7 +96,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--visualize", action="store_true", help="Replay the final clip first.")
     p.add_argument("--save-video", action="store_true", help="Render the final clip to an mp4.")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.terrain is not None and args.source != "terra":
+        p.error("--terrain requires --source terra (MSK motion + terrain).")
+    return args
 
 
 def _save_video(model_id: str, traj, path: Path) -> None:
@@ -102,7 +109,7 @@ def _save_video(model_id: str, traj, path: Path) -> None:
         import mujoco
 
         from clipper.viz.camera import center_on_pelvis
-        from clipper.viz.markers import draw_markers
+        from clipper.viz.overlays import draw_overlays
         from clipper.viz.replay import set_pose
     except Exception as exc:  # pragma: no cover - optional dep
         raise SystemExit(f"--save-video unavailable: {exc}")
@@ -127,8 +134,7 @@ def _save_video(model_id: str, traj, path: Path) -> None:
         set_pose(model, data, traj, k)
         center_on_pelvis(cam, traj.qpos[k], traj.model)
         renderer.update_scene(data, cam)
-        if traj.markers is not None:
-            draw_markers(renderer.scene, traj.markers[k])
+        draw_overlays(renderer.scene, traj, k)
         frames.append(renderer.render())
     renderer.close()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +167,8 @@ def main(argv: list[str] | None = None) -> None:
 
     model = load_model(args.model, floor=False)
     loader = get_loader(args.source)
-    traj = loader(args.path, model, args.model, source=args.source)
+    load_kwargs = {"terrain": args.terrain} if args.terrain is not None else {}
+    traj = loader(args.path, model, args.model, source=args.source, **load_kwargs)
 
     traj = edits.crop(traj, args.start, args.stop)
     traj = edits.apply_height_offset(traj, args.height_offset)

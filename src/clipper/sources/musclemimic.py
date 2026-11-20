@@ -25,23 +25,25 @@ Some models need per-model joint renames before the by-name mapping, configured 
   ``OSL_KA_L1_osl_knee_angle_r`` / ``OSL_KA_L1_osl_ankle_angle_r`` so the prosthetic
   leg follows the motion, and ``elbow_flex_*`` onto the export's ``elbow_flexion_*``.
 
-After the by-name mapping, every coupled joint (the knee couplers) is recomputed from
-the target model's own joint equalities (``qpos.enforce_joint_equalities``): the
-caches were retargeted on older models whose left-knee ``rotation3`` polynomial has
-the opposite sign of ``osl_fullbody``'s.
+After mapping onto ``osl_fullbody`` or ``myolegs``, only knee couplers are
+recomputed from the target model's equalities. OSL v3's left-knee ``rotation3``
+and ``translation2`` polynomials have opposite signs from MyoFullBody's; myolegs
+also needs knee followers absent from the OSL_KA cache. Solved spine and shoulder
+coordinates are preserved. Native ``myofullbody`` imports preserve all qpos.
 
 See [[clipper-data-sources]].
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 import mujoco
 import numpy as np
 
 from .. import constants
-from ..qpos import build_qpos, enforce_joint_equalities
+from ..qpos import build_qpos, enforce_joint_equalities, import_equality_joints
 from ..trajectory import Trajectory
 
 
@@ -51,8 +53,16 @@ def load(
     model_id: str,
     source: str = "musclemimic",
     fps: float | None = None,
+    *,
+    equality_joints: Collection[str] | None = None,
 ) -> Trajectory:
-    """Load a musclemimic cache npz into a `Trajectory` in `model`'s qpos layout."""
+    """Load a musclemimic cache npz into a `Trajectory` in `model`'s qpos layout.
+
+    ``equality_joints`` explicitly selects dependent joints to project. The
+    default None selects knee couplers only for the known cross-model targets
+    osl_fullbody/myolegs, and none otherwise. An empty collection disables all
+    projection. The same motion policy is used by the TERRA source wrapper.
+    """
     path = Path(path)
     data = np.load(path, allow_pickle=True)
     raw = np.asarray(data["qpos"], dtype=np.float64)
@@ -87,8 +97,11 @@ def load(
     }
 
     qpos = build_qpos(model, base_pos, base_quat_wxyz, joint_angles)
-    # Knee couplers copied from the cache follow the cache's model, not this one.
-    qpos = enforce_joint_equalities(model, qpos)
+    # Version/structure adaptations concern the knees, not the source's solved
+    # vertebral or shoulder coordinates. Do not enforce unrelated equalities.
+    if equality_joints is None:
+        equality_joints = import_equality_joints(model, model_id)
+    qpos = enforce_joint_equalities(model, qpos, joint_names=equality_joints)
 
     if fps is None:
         freq = data["frequency"] if "frequency" in data.files else None

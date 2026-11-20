@@ -41,6 +41,7 @@ def crop(traj: Trajectory, start: int | None = None, stop: int | None = None) ->
         name=f"{traj.name}_crop{start}-{stop}",
         markers=markers,
         twist=traj.twist,
+        terrain=traj.terrain,
     )
 
 
@@ -57,6 +58,7 @@ def apply_height_offset(traj: Trajectory, dz: float) -> Trajectory:
         qpos=q, fps=traj.fps, model=traj.model, source=traj.source, name=name,
         markers=markers,
         twist=traj.twist,
+        terrain=traj.terrain,
     )
 
 
@@ -92,6 +94,7 @@ def apply_ankle_offset(
         name=f"{traj.name}_{tag}{offset_deg:+g}",
         markers=traj.markers,
         twist=traj.twist,
+        terrain=traj.terrain,
     )
 
 
@@ -168,4 +171,5 @@ def pad_standing(
         source=traj.source,
         name=f"{traj.name}_pad",
         twist=traj.twist,
+        terrain=traj.terrain,
     )

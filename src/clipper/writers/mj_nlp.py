@@ -6,6 +6,9 @@ folder holding two plain MuJoCo-standard CSVs (see ``mj-nlp/trajectories/playbac
 * ``qpos_<dof>dof.csv`` ``(N, nq)`` — one full qpos row per frame, no header:
   ``base_pos(3) + base_quat(4, wxyz) + joints`` in the target model's own order;
 * ``time.csv`` ``(N,)`` — absolute time stamp (s) for each qpos row.
+* Optional ``terrain.json`` — static world-frame boxes and provenance in TERRA's
+  TerrainSpec schema, with an implicit floor at z=0. Absent for legacy motion-only
+  clips; an empty boxes list explicitly declares flat terrain.
 
 clipper's ``Trajectory.qpos`` is already in the target model's qpos layout, and the
 qpos ordering is identical between clipper and mj-nlp for every shared model, so the
@@ -35,7 +38,7 @@ def write(
     name: str | None = None,
     overwrite: bool = True,
 ) -> Path:
-    """Write `traj` as an mj-nlp qpos/time CSV pair; return the clip directory.
+    """Write qpos/time CSVs and optional terrain; return the clip directory.
 
     Args:
         traj: Trajectory in its model's qpos layout.
@@ -45,7 +48,9 @@ def write(
         output_fps: Target fps; resample (lerp/slerp) only if set and != traj.fps.
             ``None`` keeps the trajectory's own fps with no resampling.
         name: Output folder stem; defaults to ``traj.name``.
-        overwrite: If False, raise when the target CSVs already exist.
+        overwrite: If False, raise when a target CSV or terrain sidecar exists.
+            If True, replace the motion and terrain together, removing an old
+            terrain sidecar when the new trajectory has no terrain.
     """
     model_id = traj.model
     dof = len(joint_names(model_id))
@@ -77,12 +82,18 @@ def write(
     clip_dir = Path(out_dir) / stem
     qpos_path = clip_dir / f"qpos_{dof}dof.csv"
     time_path = clip_dir / "time.csv"
-    if not overwrite and (qpos_path.exists() or time_path.exists()):
+    terrain_path = clip_dir / "terrain.json"
+    if not overwrite and any(p.exists() for p in (qpos_path, time_path, terrain_path)):
         raise FileExistsError(
-            f"{clip_dir} already has trajectory CSVs (pass overwrite=True to replace)."
+            f"{clip_dir} already has trajectory files (pass overwrite=True to replace)."
         )
     clip_dir.mkdir(parents=True, exist_ok=True)
 
     np.savetxt(qpos_path, qpos, delimiter=",")
     np.savetxt(time_path, times, delimiter=",")
+    if traj.terrain is not None:
+        traj.terrain.save(terrain_path)
+    else:
+        # Never attach the previous clip's obstacles to replacement motion.
+        terrain_path.unlink(missing_ok=True)
     return clip_dir
